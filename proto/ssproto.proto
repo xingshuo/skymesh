@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package smproto;
+
+enum SSCmd {
+    INVALID_CMD = 0;
+    //agent && nameserver 1000 ~ 1999
+    REQ_REGISTER_APP        = 1000;
+    RSP_REGISTER_APP        = 1001;
+    REQ_REGISTER_SERVICE    = 1002;
+    RSP_REGISTER_SERVICE    = 1003;
+    NOTIFY_SERVICE_ONLINE   = 1004;
+    REQ_UNREGISTER_SERVICE  = 1005;
+    //agent && agent 2000 ~ 2999
+    NOTIFY_SERVICE_MESSAGE  = 2000;
+}
+
+enum SSError {
+    OK = 0;
+    ERR_APP_NOT_REGISTER = -1000;
+    ERR_SERVICE_REGISTER_AGAIN = -1001;
+    ERR_APP_SESSION_LOST = -1002;
+}
+
+//注册App相关
+message ReqRegisterApp {
+    string ServerAddr = 1; //mesh server address: ip:port
+    string AppID      = 2; //应用ID
+}
+
+message RspRegisterApp {
+    int32 Result = 2; //0 成功, 其他失败
+}
+
+//注册/注销服务相关
+message ServiceInfo {
+    string ServiceName = 1; //app_id.env_name.service_name
+    uint64 ServiceId = 2;
+    uint64 AddrHandle = 3;
+}
+
+message ReqRegisterService {
+    ServiceInfo service_info = 1;
+}
+
+message RspRegisterService {
+    uint64 AddrHandle = 1;
+    int32 Result = 2; //0 成功, 其他失败
+}
+
+message ReqUnRegisterService {
+    uint64 AddrHandle = 1;
+}
+
+//通知服务上下线相关
+message NotifyServiceOnline {
+    string ServerAddr = 1; //mesh server address: ip:port
+    ServiceInfo service_info = 2;
+    bool is_online = 3;
+}
+
+//跨进程服务消息通知
+message NotifyServiceMessage {
+    ServiceInfo src_service = 1;
+    uint64      dst_handle = 2;
+    bytes       data = 3;
+}
+
+message SSMsg {
+  SSCmd cmd = 1;
+  oneof Msg
+  {
+      ReqRegisterApp     register_app_req                 = 100;
+      RspRegisterApp     register_app_rsp                 = 101;
+      ReqRegisterService register_service_req             = 102;
+      RspRegisterService register_service_rsp             = 103;
+      NotifyServiceOnline notify_service_online           = 104;
+      ReqUnRegisterService unregister_service_req         = 105;
+      NotifyServiceMessage notify_service_message         = 200;
+  }
+}
