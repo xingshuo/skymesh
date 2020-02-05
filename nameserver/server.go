@@ -10,6 +10,7 @@ import (
 
 	skymesh "github.com/xingshuo/skymesh/agent"
 	gonet "github.com/xingshuo/skymesh/common/network"
+	smsync "github.com/xingshuo/skymesh/common/sync"
 	"github.com/xingshuo/skymesh/log"
 	smpack "github.com/xingshuo/skymesh/proto"
 	smproto "github.com/xingshuo/skymesh/proto/generate"
@@ -123,6 +124,7 @@ type Server struct {
 	err_queue      chan error
 	handleServices map[uint64]*ServiceInfo
 	apps           map[string]*AppInfo
+	quit           *smsync.Event
 }
 
 func (s *Server) Init(conf string) error {
@@ -136,6 +138,7 @@ func (s *Server) Init(conf string) error {
 	s.err_queue = make(chan error, 1)
 	s.handleServices = make(map[uint64]*ServiceInfo)
 	s.apps = make(map[string]*AppInfo)
+	s.quit = smsync.NewEvent("nameserver.Server.quit")
 
 	newReceiver := func() gonet.Receiver {
 		return &lisConnReceiver{server: s}
@@ -167,6 +170,12 @@ func (s *Server) Serve() error {
 		case err := <-s.err_queue:
 			log.Errorf("server error:%v.\n", err)
 			return err
+		case <-s.quit.Done():
+			for len(s.msg_queue) > 0 {
+				msg := <-s.msg_queue
+				s.onMessage(msg)
+			}
+			return nil
 		}
 	}
 }
@@ -286,4 +295,8 @@ func (s *Server) UnRegisterService(addrHandle uint64) error {
 	app.RemoveItem(si.serviceAddr.AddrHandle)
 	app.BroadcastOnline(si, false)
 	return nil
+}
+
+func (s *Server) Stop() {
+	s.quit.Fire()
 }

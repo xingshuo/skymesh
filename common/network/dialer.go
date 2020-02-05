@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/xingshuo/skymesh/common/sync"
-	smsync "github.com/xingshuo/skymesh/common/sync"
 )
 
 type Dialer struct {

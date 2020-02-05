@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/xingshuo/skymesh/common/sync"
-	smsync "github.com/xingshuo/skymesh/common/sync"
 )
 
 type Listener struct {
