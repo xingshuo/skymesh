@@ -12,18 +12,20 @@ import (
 )
 
 type Server interface {
-	Init(conf, appID string) error
 	Register(serviceName string, service Service) error
 	UnRegister(serviceName string) error
+	GetNameResolver(serviceName string) NameResolver
+	Serve() error
 	GracefulStop()
 }
 
-var (
-	serverInstance = &skymeshServer{}
-)
-
-func GetServerInstance() Server { //每个进程只启动一个实例
-	return serverInstance
+func NewServer(conf string, appID string) (Server, error) { //每个进程只启动一个实例
+	s := &skymeshServer{}
+	err := s.Init(conf, appID)
+	if err != nil {
+		return nil, err
+	}
+	return s, err
 }
 
 type skymeshServer struct {
@@ -69,8 +71,6 @@ func (s *skymeshServer) Init(conf string, appID string) error {
 	if err != nil {
 		return err
 	}
-	//启动接收消息循环
-	go s.Serve()
 	return nil
 }
 
@@ -279,33 +279,33 @@ func (s *skymeshServer) Send(srcAddr *Addr, dstHandle uint64, b []byte) error {
 	return s.sidecar.SendRemote(srcAddr, dstHandle, b)
 }
 
-func (s *skymeshServer) addNameResolver(svcName string, sr *skymeshResolver) error {
+func (s *skymeshServer) GetNameResolver(serviceName string) NameResolver {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.resolvers[svcName]; ok {
-		return errors.New("re-add name resolver")
+	ns := s.resolvers[serviceName]
+	if ns == nil {
+		ns = &skymeshResolver{
+			svcName:   serviceName,
+			instAddrs: make(map[uint64]*Addr),
+			watchers:  make(map[NameWatcher]bool),
+		}
+		s.resolvers[serviceName] = ns
 	}
-	s.resolvers[svcName] = sr
-	return nil
-}
-
-func (s *skymeshServer) getNameResolver(svcName string) *skymeshResolver {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sr, ok := s.resolvers[svcName]
-	if ok {
-		return sr
-	} else {
-		return nil
+	s.mu.Unlock()
+	handles, insts := s.getServiceInsts(serviceName)
+	for idx, instID := range insts {
+		ns.instAddrs[instID] = &Addr{ServiceName: serviceName, ServiceId: instID, AddrHandle: handles[idx]}
 	}
+	return ns
 }
 
 func (s *skymeshServer) getServiceInsts(svcName string) (handles []uint64, insts []uint64) {
 	//先收集本地service实例信息
+	s.mu.Lock()
 	for lh, svc := range s.nameGroupServices[svcName] {
 		handles = append(handles, lh)
 		insts = append(insts, svc.addr.ServiceId)
 	}
+	s.mu.Unlock()
 	//再收集其他进程服务service实例信息
 	rhs, rinsts := s.sidecar.getRemoteServiceInsts(svcName)
 	//合并

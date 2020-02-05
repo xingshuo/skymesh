@@ -11,28 +11,6 @@ type NameResolver interface {
 	GetInstsAddr() map[uint64]*Addr
 }
 
-func GetNameResolver(svcName string) (error, NameResolver) {
-	ns := serverInstance.getNameResolver(svcName)
-	if ns != nil {
-		return nil, ns
-	}
-	ns = &skymeshResolver{
-		svcName:   svcName,
-		instAddrs: make(map[uint64]*Addr),
-		watchers:  make(map[NameWatcher]bool),
-	}
-	err := serverInstance.addNameResolver(svcName, ns)
-	if err != nil {
-		return err, nil
-	}
-
-	handles, insts := serverInstance.getServiceInsts(svcName)
-	for idx, instID := range insts {
-		ns.instAddrs[instID] = &Addr{ServiceName: svcName, ServiceId: instID, AddrHandle: handles[idx]}
-	}
-	return nil, ns
-}
-
 type skymeshResolver struct {
 	svcName   string
 	instAddrs map[uint64]*Addr

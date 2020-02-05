@@ -252,6 +252,8 @@ func (sc *skymeshSidecar) SendRemote(srcAddr *Addr, dstHandle uint64, b []byte) 
 }
 
 func (sc *skymeshSidecar) getRemoteServiceInsts(svcName string) (handles []uint64, insts []uint64) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
 	for rh, svc := range sc.remoteGroupServices[svcName] {
 		handles = append(handles, rh)
 		insts = append(insts, svc.serviceAddr.ServiceId)

@@ -111,12 +111,6 @@ func (a *AppInfo) BroadcastOnline(si *ServiceInfo, is_online bool) {
 	}
 }
 
-var svrInstance *Server = &Server{}
-
-func GetServerInstance() *Server {
-	return svrInstance
-}
-
 type Server struct {
 	cfg            Config
 	sess_mgr       *SessionMgr
