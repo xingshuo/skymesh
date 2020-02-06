@@ -12,13 +12,13 @@ import (
 )
 
 type Server interface {
-	Register(serviceName string, service Service) error
-	UnRegister(serviceName string) error
-	GetNameResolver(serviceName string) NameResolver
+	Register(serviceName string, service Service) error //注册服务
+	UnRegister(serviceName string) error  //注销服务
+	GetNameResolver(serviceName string) NameResolver //返回serviceName的名字解析器
 	Send(srcServiceUrl string, dstHandle uint64, b []byte) error //定向发送, 适用有状态服务
 	SendByRouter(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
-	Serve() error
-	GracefulStop()
+	Serve() error  //阻塞循环
+	GracefulStop() //优雅退出
 }
 
 func NewServer(conf string, appID string) (Server, error) { //每个进程只启动一个实例

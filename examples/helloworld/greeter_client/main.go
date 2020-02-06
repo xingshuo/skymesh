@@ -12,8 +12,10 @@ import (
 )
 
 var (
-	conf string
-	svcUrl = "testApp.weixin1.greeterClient/101"
+	conf         string
+	appID        = "testApp"
+	svcUrl       = fmt.Sprintf("%s.weixin1.greeterClient/101", appID)
+	watchUrl     = fmt.Sprintf("%s.weixin1.greeterServer", appID)
 	greetMessage = "Nice to meet you."
 )
 
@@ -30,7 +32,7 @@ func (c *greeterClient) OnUnRegister() {
 }
 
 func (c *greeterClient) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
-	log.Infof("recv server reply %s from %s.\n", string(msg),rmtAddr)
+	log.Infof("recv server reply %s from %s.\n", string(msg), rmtAddr)
 }
 
 type greeterServerWatcher struct {
@@ -38,7 +40,7 @@ type greeterServerWatcher struct {
 }
 
 func (w *greeterServerWatcher) OnInstOnline(addr *skymesh.Addr) {
-	log.Infof("service %s inst online.",addr)
+	log.Infof("service %s inst online.", addr)
 	err := w.server.Send(svcUrl, addr.AddrHandle, []byte(greetMessage))
 	if err != nil {
 		log.Errorf("greeter client send msg err:%v.\n", err)
@@ -47,7 +49,7 @@ func (w *greeterServerWatcher) OnInstOnline(addr *skymesh.Addr) {
 	}
 }
 func (w *greeterServerWatcher) OnInstOffline(addr *skymesh.Addr) {
-	log.Info("service %s inst offline.",addr)
+	log.Info("service %s inst offline.", addr)
 }
 
 func handleSignal(s skymesh.Server) {
@@ -62,24 +64,24 @@ func handleSignal(s skymesh.Server) {
 }
 
 func main() {
-	flag.StringVar(&conf,"conf", "config.json", "greeter client config")
+	flag.StringVar(&conf, "conf", "config.json", "greeter client config")
 	flag.Parse()
-	s,err := skymesh.NewServer(conf, "testApp")
+	s, err := skymesh.NewServer(conf, appID)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
 	go handleSignal(s)
-	c := &greeterClient{server:s}
+	c := &greeterClient{server: s}
 	err = s.Register(svcUrl, c)
 	if err != nil {
-		log.Errorf("register %s err:%v\n",svcUrl,err)
+		log.Errorf("register %s err:%v\n", svcUrl, err)
 		return
 	}
-	ns := c.server.GetNameResolver("testApp.weixin1.greeterServer")
+	ns := c.server.GetNameResolver(watchUrl)
 	ns.Watch(&greeterServerWatcher{s})
 	//向已经上线的Server端服务发送greetMessage
-	for _,addr := range ns.GetInstsAddr() {
+	for _, addr := range ns.GetInstsAddr() {
 		s.Send(svcUrl, addr.AddrHandle, []byte(greetMessage))
 	}
 	log.Info("ready to serve.\n")

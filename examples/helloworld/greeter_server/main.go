@@ -12,7 +12,8 @@ import (
 
 var (
 	conf         string
-	svcUrl       = "testApp.weixin1.greeterServer/101"
+	appID        = "testApp"
+	svcUrl       = fmt.Sprintf("%s.weixin1.greeterServer/101", appID)
 	greetMessage = "Nice to meet you too."
 )
 
@@ -47,7 +48,7 @@ func handleSignal(s skymesh.Server) {
 func main() {
 	flag.StringVar(&conf,"conf", "config.json", "greeter server config")
 	flag.Parse()
-	s,err := skymesh.NewServer(conf, "testApp")
+	s,err := skymesh.NewServer(conf, appID)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return
