@@ -6,6 +6,7 @@ import (
 	"github.com/xingshuo/skymesh/log"
 	smpack "github.com/xingshuo/skymesh/proto"
 	smproto "github.com/xingshuo/skymesh/proto/generate"
+	"time"
 )
 
 type lisConnReceiver struct {
@@ -69,6 +70,7 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_RSP_REGISTER_SERVICE {
+			log.Info("recv register service rsp.\n")
 			rsp := ssmsg.GetRegisterServiceRsp()
 			msg := &RegServiceEvent{
 				dstHandle: rsp.AddrHandle,
@@ -82,6 +84,7 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_ONLINE {
+			log.Info("recv online msg.\n")
 			rsp := ssmsg.GetNotifyServiceOnline()
 			msg := &OnlineEvent{
 				serviceAddr: &Addr{
@@ -92,10 +95,14 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 				serverAddr: rsp.ServerAddr,
 				isOnline:   rsp.IsOnline,
 			}
+			deadline := 2
+			ticker := time.NewTicker(time.Duration(deadline)*time.Second)
 			select {
 			case ndr.server.eventQueue <- msg:
-			default:
-				log.Error("deliver online event msg block.\n")
+				ticker.Stop()
+				log.Info("deliver online event msg succeed.\n")
+			case <-ticker.C:
+				log.Errorf("deliver online event msg block %ds.\n", deadline)
 			}
 			return
 		}

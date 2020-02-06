@@ -32,11 +32,11 @@ type skymeshService struct {
 }
 
 func (s *skymeshService) SendByRouter(serviceName string, msg []byte) error {
-	return s.server.SendByRouter(s.addr, serviceName, msg)
+	return s.server.sendByRouter(s.addr, serviceName, msg)
 }
 
 func (s *skymeshService) Send(dstHandle uint64, msg []byte) error {
-	return s.server.Send(s.addr, dstHandle, msg)
+	return s.server.send(s.addr, dstHandle, msg)
 }
 
 func (s *skymeshService) GetLocalAddr() *Addr {

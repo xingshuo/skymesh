@@ -25,7 +25,6 @@ func (lr *lisConnReceiver) OnConnected(s gonet.Sender) error {
 
 func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err error) {
 	skipLen, data := smpack.Unpack(b)
-	log.Infof("lis conn recv msg %d bytes.\n", skipLen)
 	if skipLen > 0 {
 		var ssmsg smproto.SSMsg
 		err = proto.Unmarshal(data, &ssmsg)
@@ -93,13 +92,12 @@ func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 				},
 			},
 		}
-		b, err := proto.Marshal(msg)
+		b, err := smpack.PackSSMsg(msg)
 		if err != nil {
 			log.Errorf("pb marshal err:%v.\n", err)
 			return
 		}
-		data := smpack.Pack(b)
-		lr.Send(data)
+		lr.Send(b)
 		return
 	}
 	msg := &RegServiceMsg{

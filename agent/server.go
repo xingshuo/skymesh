@@ -15,6 +15,8 @@ type Server interface {
 	Register(serviceName string, service Service) error
 	UnRegister(serviceName string) error
 	GetNameResolver(serviceName string) NameResolver
+	Send(srcServiceUrl string, dstHandle uint64, b []byte) error //定向发送, 适用有状态服务
+	SendByRouter(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
 	Serve() error
 	GracefulStop()
 }
@@ -40,7 +42,7 @@ type skymeshServer struct {
 	eventQueue chan interface{}
 	serviceWG  sync.WaitGroup
 
-	nameServices      map[string]*skymeshService            //key is ServiceName(含实例id)
+	urlServices       map[string]*skymeshService            //key is Service Url
 	nameGroupServices map[string]map[uint64]*skymeshService //first floor key is ServiceName(不含实例id)
 	handleServices    map[uint64]*skymeshService
 	resolvers         map[string]*skymeshResolver //skymesh的名字解析列表
@@ -48,6 +50,11 @@ type skymeshServer struct {
 }
 
 func (s *skymeshServer) Init(conf string, appID string) error {
+	//加载配置(必须放第一步)
+	err := s.loadConfig(conf)
+	if err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	//数据结构初始化
@@ -57,15 +64,11 @@ func (s *skymeshServer) Init(conf string, appID string) error {
 	s.errQueue = make(chan error, 1)
 	s.recvQueue = make(chan *Message, s.cfg.RecvQueueSize)
 	s.eventQueue = make(chan interface{}, s.cfg.EventQueueSize)
-	s.nameServices = make(map[string]*skymeshService)
+	s.urlServices = make(map[string]*skymeshService)
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
 	s.handleServices = make(map[uint64]*skymeshService)
 	s.resolvers = make(map[string]*skymeshResolver)
-	//加载配置
-	err := s.loadConfig(conf)
-	if err != nil {
-		return err
-	}
+	//sidecar 初始化
 	s.sidecar = &skymeshSidecar{server: s}
 	err = s.sidecar.Init()
 	if err != nil {
@@ -93,7 +96,7 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	log.Infof("register service: %s\n", serviceUrl)
-	if _, ok := s.nameServices[serviceUrl]; ok {
+	if _, ok := s.urlServices[serviceUrl]; ok {
 		return errors.New("skymesh register service repeated")
 	}
 	addr, err := SkymeshUrl2Addr(serviceUrl, false)
@@ -101,6 +104,7 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 		return errors.New("service url format err, should be skymesh://service_name/service_id")
 	}
 	addr.AddrHandle = MakeServiceHandle(s.cfg.MeshserverAddress, addr.ServiceName, addr.ServiceId)
+	log.Infof("%s bind handle %d.\n", serviceUrl, addr.AddrHandle)
 	err = s.sidecar.RegisterServiceToNameServer(addr, true)
 	if err != nil {
 		return err
@@ -114,7 +118,7 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 		done:     smsync.NewEvent("skymesh.skymeshService.done"),
 		msgQueue: make(chan *Message, s.cfg.ServiceQueueSize),
 	}
-	s.nameServices[serviceUrl] = svc
+	s.urlServices[serviceUrl] = svc
 	s.handleServices[addr.AddrHandle] = svc
 	if s.nameGroupServices[addr.ServiceName] == nil {
 		s.nameGroupServices[addr.ServiceName] = make(map[uint64]*skymeshService)
@@ -134,10 +138,10 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 func (s *skymeshServer) UnRegister(serviceUrl string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if svc := s.nameServices[serviceUrl]; svc != nil {
+	if svc := s.urlServices[serviceUrl]; svc != nil {
 		s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
 		svc.Stop()
-		delete(s.nameServices, serviceUrl)
+		delete(s.urlServices, serviceUrl)
 		delete(s.handleServices, svc.addr.AddrHandle)
 		delete(s.nameGroupServices[svc.addr.ServiceName], svc.addr.AddrHandle)
 	}
@@ -156,10 +160,10 @@ func (s *skymeshServer) Serve() error {
 				rsname := e.serviceAddr.ServiceName
 				s.mu.Lock()
 				resolver := s.resolvers[rsname]
+				s.mu.Unlock()
 				if resolver != nil {
 					resolver.notifyInstsChange(e.isOnline, rh, e.serviceAddr.ServiceId)
 				}
-				s.mu.Unlock()
 			case *RegServiceEvent:
 				e := event.(*RegServiceEvent)
 				dh := e.dstHandle
@@ -202,7 +206,7 @@ func (s *skymeshServer) Serve() error {
 				s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
 				svc.Stop()
 			}
-			s.nameServices = make(map[string]*skymeshService)
+			s.urlServices = make(map[string]*skymeshService)
 			s.handleServices = make(map[uint64]*skymeshService)
 			s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
 			s.resolvers = make(map[string]*skymeshResolver)
@@ -230,6 +234,7 @@ func (s *skymeshServer) Serve() error {
 
 func (s *skymeshServer) GracefulStop() {
 	if s.quit.Fire() {
+		log.Warning("skymesh quit fire.\n")
 		<-s.done.Done()
 		log.Warning("skymesh graceful stop.\n")
 	}
@@ -255,15 +260,35 @@ func (s *skymeshServer) GetBestQualityService(svcName string) *Addr { //优先�
 	return nil
 }
 
-func (s *skymeshServer) SendByRouter(srcAddr *Addr, serviceName string, b []byte) error { //针对无状态服务
+func (s *skymeshServer) SendByRouter(srcServiceUrl string, dstServiceName string, b []byte) error {
+	s.mu.Lock()
+	srcSvc := s.urlServices[srcServiceUrl]
+	s.mu.Unlock()
+	if srcSvc == nil {
+		return fmt.Errorf("SendByRouter not find service %s", srcServiceUrl)
+	}
+	return s.sendByRouter(srcSvc.addr, dstServiceName, b)
+}
+
+func (s *skymeshServer) Send(srcServiceUrl string, dstHandle uint64, b []byte) error {
+	s.mu.Lock()
+	srcSvc := s.urlServices[srcServiceUrl]
+	s.mu.Unlock()
+	if srcSvc == nil {
+		return fmt.Errorf("Send not find service %s", srcServiceUrl)
+	}
+	return s.send(srcSvc.addr, dstHandle, b)
+}
+
+func (s *skymeshServer) sendByRouter(srcAddr *Addr, serviceName string, b []byte) error { //针对无状态服务
 	rmAddr := s.GetBestQualityService(serviceName)
 	if rmAddr == nil {
 		return fmt.Errorf("not find service %s router", serviceName)
 	}
-	return s.Send(srcAddr, rmAddr.AddrHandle, b)
+	return s.send(srcAddr, rmAddr.AddrHandle, b)
 }
 
-func (s *skymeshServer) Send(srcAddr *Addr, dstHandle uint64, b []byte) error {
+func (s *skymeshServer) send(srcAddr *Addr, dstHandle uint64, b []byte) error {
 	s.mu.Lock()
 	dstSvc := s.handleServices[dstHandle]
 	s.mu.Unlock()

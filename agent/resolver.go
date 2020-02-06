@@ -41,8 +41,8 @@ func (sr *skymeshResolver) notifyInstsChange(isOnline bool, handle uint64, instI
 			w.OnInstOnline(instAddr)
 		}
 	} else {
-		instAddr, ok := sr.instAddrs[instID]
-		if !ok {
+		instAddr := sr.instAddrs[instID]
+		if instAddr == nil {
 			return
 		}
 		for w := range sr.watchers {

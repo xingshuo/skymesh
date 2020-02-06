@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/golang/protobuf/proto"
 	gonet "github.com/xingshuo/skymesh/common/network"
 	"github.com/xingshuo/skymesh/log"
 	smpack "github.com/xingshuo/skymesh/proto"
@@ -96,7 +95,7 @@ func (sc *skymeshSidecar) Init() error {
 				},
 			},
 		}
-		b, err := proto.Marshal(msg)
+		b, err := smpack.PackSSMsg(msg)
 		if err != nil {
 			log.Errorf("pb marshal err:%v.\n", err)
 			sc.server.errQueue <- err
@@ -205,13 +204,12 @@ func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, isRegis
 		}
 	}
 
-	b, err := proto.Marshal(msg)
+	b, err := smpack.PackSSMsg(msg)
 	if err != nil {
 		log.Errorf("pb marshal err:%v.\n", err)
-		return nil
+		return err
 	}
-	data := smpack.Pack(b)
-	sc.nameserverDialer.Send(data)
+	sc.nameserverDialer.Send(b)
 	return nil
 }
 
@@ -225,7 +223,7 @@ func (sc *skymeshSidecar) SendRemote(srcAddr *Addr, dstHandle uint64, b []byte) 
 	}
 	d, err := sc.agentDialers.GetDialer(rmsvc.serverAddr)
 	if err != nil {
-		log.Errorf("not find %s agent dialer %s.", rmsvc.serviceAddr, rmsvc.serverAddr)
+		log.Errorf("not find %s agent dialer %s.\n", rmsvc.serviceAddr, rmsvc.serverAddr)
 		return err
 	}
 	msg := &smproto.SSMsg{
@@ -242,7 +240,7 @@ func (sc *skymeshSidecar) SendRemote(srcAddr *Addr, dstHandle uint64, b []byte) 
 			},
 		},
 	}
-	data, err := proto.Marshal(msg)
+	data, err := smpack.PackSSMsg(msg)
 	if err != nil {
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err

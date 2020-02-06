@@ -1,0 +1,1 @@
+.\main.exe -conf=..\configs\client_agent.json

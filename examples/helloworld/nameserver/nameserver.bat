@@ -1,0 +1,1 @@
+.\main.exe -conf=..\configs\nameserver.json

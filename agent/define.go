@@ -11,8 +11,8 @@ type Config struct {
 }
 
 type Addr struct {
-	ServiceName string
-	ServiceId   uint64
+	ServiceName string //appid.env_name.service_name
+	ServiceId   uint64 //instance id
 	AddrHandle  uint64 //唯一标识
 }
 

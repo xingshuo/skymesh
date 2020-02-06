@@ -6,8 +6,6 @@ import (
 	"io/ioutil"
 	"sync"
 
-	"github.com/golang/protobuf/proto"
-
 	skymesh "github.com/xingshuo/skymesh/agent"
 	gonet "github.com/xingshuo/skymesh/common/network"
 	smsync "github.com/xingshuo/skymesh/common/sync"
@@ -82,7 +80,7 @@ func (a *AppInfo) RemoveItem(handle uint64) {
 	delete(a.services, handle)
 }
 
-func (a *AppInfo) BroadcastOnline(si *ServiceInfo, is_online bool) {
+func (a *AppInfo) BroadcastOnlineToOthers(si *ServiceInfo, is_online bool) {
 	msg := &smproto.SSMsg{
 		Cmd: smproto.SSCmd_NOTIFY_SERVICE_ONLINE,
 		Msg: &smproto.SSMsg_NotifyServiceOnline{
@@ -97,17 +95,44 @@ func (a *AppInfo) BroadcastOnline(si *ServiceInfo, is_online bool) {
 			},
 		},
 	}
-	b, err := proto.Marshal(msg)
+	b, err := smpack.PackSSMsg(msg)
 	if err != nil {
 		log.Errorf("pb marshal err:%v.\n", err)
 		return
 	}
-	data := smpack.Pack(b)
 	for _, service := range a.services {
 		if service.serverAddr == si.serverAddr { //只通知其他进程App
 			continue
 		}
-		service.NotifyApp(data)
+		service.NotifyApp(b)
+	}
+}
+
+func (a *AppInfo) NotifyOthersOnlineToSelf(serverAddr string, lr *lisConnReceiver) {
+	for _, service := range a.services {
+		if service.serverAddr == serverAddr { //只通知自己其他进程service上线消息
+			continue
+		}
+		msg := &smproto.SSMsg{
+			Cmd: smproto.SSCmd_NOTIFY_SERVICE_ONLINE,
+			Msg: &smproto.SSMsg_NotifyServiceOnline{
+				NotifyServiceOnline: &smproto.NotifyServiceOnline{
+					ServerAddr: service.serverAddr,
+					ServiceInfo: &smproto.ServiceInfo{
+						ServiceName: service.serviceAddr.ServiceName,
+						ServiceId:   service.serviceAddr.ServiceId,
+						AddrHandle:  service.serviceAddr.AddrHandle,
+					},
+					IsOnline: true,
+				},
+			},
+		}
+		b, err := smpack.PackSSMsg(msg)
+		if err != nil {
+			log.Errorf("pack %s online pb marshal err:%v.\n", service.serviceAddr, err)
+			continue
+		}
+		lr.Send(b)
 	}
 }
 
@@ -220,22 +245,22 @@ func (s *Server) RegisterApp(serverAddr, appID string) error {
 			},
 		},
 	}
-	b, err := proto.Marshal(msg)
+	b, err := smpack.PackSSMsg(msg)
 	if err != nil {
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err
 	}
-	data := smpack.Pack(b)
-	lr.Send(data)
+	lr.Send(b)
 
 	app := s.apps[appID]
 	if app != nil {
 		log.Infof("re-register app %s.\n", appID)
-		return nil
+	} else {
+		app = &AppInfo{}
+		app.Init(appID)
+		s.apps[appID] = app
 	}
-	app = &AppInfo{}
-	app.Init(appID)
-	s.apps[appID] = app
+	app.NotifyOthersOnlineToSelf(serverAddr, lr)
 	return nil
 }
 
@@ -266,13 +291,13 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 			},
 		},
 	}
-	b, err := proto.Marshal(msg)
+	b, err := smpack.PackSSMsg(msg)
 	if err != nil {
 		log.Errorf("pb marshal err:%v.\n", err)
 	} else {
 		si.NotifyApp(b)
 	}
-	app.BroadcastOnline(si, true)
+	app.BroadcastOnlineToOthers(si, true)
 	return nil
 }
 
@@ -287,7 +312,7 @@ func (s *Server) UnRegisterService(addrHandle uint64) error {
 	}
 	delete(s.handleServices, addrHandle)
 	app.RemoveItem(si.serviceAddr.AddrHandle)
-	app.BroadcastOnline(si, false)
+	app.BroadcastOnlineToOthers(si, false)
 	return nil
 }
 
