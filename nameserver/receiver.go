@@ -44,6 +44,10 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 			lr.OnUnRegisterService(&ssmsg)
 			return
 		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_NAMESERVER_HEARTBEAT {
+			//Todo: write keepalive logic
+			return
+		}
 	}
 	return
 }

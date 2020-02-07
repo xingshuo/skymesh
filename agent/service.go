@@ -3,11 +3,58 @@ package skymesh
 import (
 	smsync "github.com/xingshuo/skymesh/common/sync"
 	"github.com/xingshuo/skymesh/log"
+	"time"
 )
 
 type remoteService struct { //其他skymeshServer服务实例的简要信息
 	serverAddr  string
 	serviceAddr *Addr
+	lastPingSendMS int64 //毫秒
+	avgRTTs []int64 //近n次平均往返延迟
+	curPingSeq uint64  //当前Ping包Seq编号
+	lastAckPingSeq uint64 //上一次收到回复的Ping包编号
+}
+
+func (rs *remoteService) onSendPing() {
+	sendTime := int64(time.Now().UnixNano()/1e6)
+	if rs.lastAckPingSeq == rs.curPingSeq { //已经收到回包
+		rs.curPingSeq++
+		rs.lastPingSendMS = sendTime
+	} else {
+		rs.avgRTTs = append(rs.avgRTTs, sendTime - rs.lastPingSendMS)
+		if len(rs.avgRTTs) > AVERAGE_RTT_SAMPLING_NUM {
+			rs.avgRTTs = append(rs.avgRTTs[:0], rs.avgRTTs[1:]...)
+		}
+		rs.lastAckPingSeq = rs.curPingSeq
+		rs.curPingSeq++
+		rs.lastPingSendMS = sendTime
+	}
+}
+
+func (rs *remoteService) PingAck(ackSeq uint64) {
+	if ackSeq != rs.curPingSeq { //之前ping包的回复,已过期
+		return
+	}
+	if rs.lastAckPingSeq == ackSeq { //重复包
+		return
+	}
+	recvTime := int64(time.Now().UnixNano()/1e6)
+	rs.avgRTTs = append(rs.avgRTTs, recvTime - rs.lastPingSendMS)
+	if len(rs.avgRTTs) > AVERAGE_RTT_SAMPLING_NUM {
+		rs.avgRTTs = append(rs.avgRTTs[:0], rs.avgRTTs[1:]...)
+	}
+	rs.lastAckPingSeq = ackSeq
+}
+
+func (rs *remoteService) CalAverageRTT() int64 { //毫秒
+	if len(rs.avgRTTs) == 0 {
+		return  0
+	}
+	var sum int64
+	for _,rtt := range rs.avgRTTs {
+		sum = sum + rtt
+	}
+	return sum/int64(len(rs.avgRTTs))
 }
 
 type Transport interface {
@@ -28,7 +75,7 @@ type skymeshService struct {
 	service  Service
 	quit     *smsync.Event
 	done     *smsync.Event
-	msgQueue chan *Message
+	msgQueue chan Message
 }
 
 func (s *skymeshService) SendByRouter(serviceName string, msg []byte) error {
@@ -43,12 +90,12 @@ func (s *skymeshService) GetLocalAddr() *Addr {
 	return s.addr
 }
 
-func (s *skymeshService) PushMessage(msg *Message) bool {
+func (s *skymeshService) PushMessage(msg Message) bool {
 	select {
 	case s.msgQueue <- msg:
 		return true
 	default:
-		log.Errorf("push msg to %s failed.", msg.srcAddr)
+		log.Errorf("push msg to %d failed.", msg.GetDstHandle())
 		return false
 	}
 }
@@ -61,11 +108,25 @@ func (s *skymeshService) Serve() {
 	for {
 		select {
 		case msg := <-s.msgQueue:
-			s.service.OnMessage(msg.srcAddr, msg.data)
+			switch msg.GetMessageType() {
+			case DATA_MESSAE:
+				dataMsg := msg.(*DataMessage)
+				s.service.OnMessage(dataMsg.srcAddr, dataMsg.data)
+			case PING_MESSAGE:
+				pingMsg := msg.(*PingMessage)
+				s.server.sidecar.sendPingAck(pingMsg.dstHandle, pingMsg.seq, pingMsg.srcServerAddr)
+			}
 		case <-s.quit.Done():
 			for len(s.msgQueue) > 0 {
 				msg := <-s.msgQueue
-				s.service.OnMessage(msg.srcAddr, msg.data)
+				switch msg.GetMessageType() {
+				case DATA_MESSAE:
+					dataMsg := msg.(*DataMessage)
+					s.service.OnMessage(dataMsg.srcAddr, dataMsg.data)
+				case PING_MESSAGE:
+					pingMsg := msg.(*PingMessage)
+					s.server.sidecar.sendPingAck(pingMsg.dstHandle, pingMsg.seq, pingMsg.srcServerAddr)
+				}
 			}
 			s.done.Fire()
 			return

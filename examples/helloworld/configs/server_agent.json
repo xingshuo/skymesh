@@ -3,5 +3,7 @@
   "MeshserverAddress": "127.0.0.1:8902",
   "RecvQueueSize": 30000,
   "ServiceQueueSize": 5000,
-  "EventQueueSize": 6000
+  "EventQueueSize": 6000,
+  "ServicePingInterval": 5,
+  "ServiceKeepAliveInterval": 5
 }

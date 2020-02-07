@@ -28,7 +28,7 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_MESSAGE {
 			notify := ssmsg.GetNotifyServiceMessage()
-			msg := &Message{
+			msg := &DataMessage{
 				dstHandle: notify.DstHandle,
 				srcAddr: &Addr{
 					ServiceName: notify.SrcService.ServiceName,
@@ -38,6 +38,21 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 				data: notify.Data,
 			}
 			lr.server.recvQueue <- msg
+			return
+		}
+		if ssmsg.Cmd == smproto.SSCmd_REQ_PING_SERVICE {
+			req := ssmsg.GetServicePingReq()
+			msg := &PingMessage{
+				srcServerAddr: req.SrcServerAddr,
+				seq:           req.Seq,
+				dstHandle:     req.DstHandle,
+			}
+			lr.server.recvQueue <- msg
+			return
+		}
+		if ssmsg.Cmd == smproto.SSCmd_RSP_PING_SERVICE {
+			rsp := ssmsg.GetServicePingRsp()
+			lr.server.sidecar.recvPingAck(rsp.SrcHandle, rsp.Seq)
 			return
 		}
 	}

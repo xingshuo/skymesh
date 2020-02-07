@@ -3,6 +3,7 @@ package skymesh
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	gonet "github.com/xingshuo/skymesh/common/network"
 	"github.com/xingshuo/skymesh/log"
@@ -59,7 +60,9 @@ type skymeshSidecar struct {
 	meshserverListener  *gonet.Listener
 	agentDialers        *AgentDialerMgr
 	remoteServices      map[uint64]*remoteService
-	remoteGroupServices map[string]map[uint64]*remoteService //ServiceName(不含实例id):{ handle: remoteService}
+	remoteGroupServices map[string]map[uint64]*remoteService //ServiceName:{ handle: remoteService}
+	healthTicker        *time.Ticker
+	keepaliveTicker     *time.Ticker
 }
 
 func (sc *skymeshSidecar) Init() error {
@@ -124,7 +127,103 @@ func (sc *skymeshSidecar) Init() error {
 		}
 		log.Info("listener quit.")
 	}()
+	sc.keepaliveTicker = time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			<-sc.keepaliveTicker.C
+			sc.keepalive()
+		}
+	}()
+	sc.healthTicker = time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			<-sc.healthTicker.C
+			sc.healthCheck()
+		}
+	}()
 	return nil
+}
+
+func (sc *skymeshSidecar) keepalive() {
+	for handle,svc := range sc.server.getAllServices() {
+		msg := &smproto.SSMsg{
+			Cmd:                  smproto.SSCmd_NOTIFY_NAMESERVER_HEARTBEAT,
+			Msg:                  &smproto.SSMsg_NotifyNameserverHb{
+				NotifyNameserverHb: &smproto.NotifyNameServerHeartBeat{
+					SrcHandle:    handle,
+				},
+			},
+		}
+		data, err := smpack.PackSSMsg(msg)
+		if err != nil {
+			log.Errorf("keepalive %s pb marshal err:%v.\n", svc.addr, err)
+			continue
+		}
+		sc.nameserverDialer.Send(data)
+	}
+}
+
+func (sc *skymeshSidecar) healthCheck() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	for _,rmSvc := range sc.remoteServices {
+		d,err := sc.agentDialers.GetDialer(rmSvc.serverAddr)
+		if err != nil {
+			log.Errorf("health check not find %s to %s dialer\n", rmSvc.serviceAddr, rmSvc.serverAddr)
+			continue
+		}
+		rmSvc.onSendPing()
+		msg := &smproto.SSMsg{
+			Cmd:                  smproto.SSCmd_REQ_PING_SERVICE,
+			Msg:                  &smproto.SSMsg_ServicePingReq{
+				ServicePingReq: &smproto.ReqServicePing{
+					DstHandle:            rmSvc.serviceAddr.AddrHandle,
+					Seq:				  rmSvc.curPingSeq,
+					SrcServerAddr:        sc.server.cfg.MeshserverAddress,
+				},
+			},
+		}
+		data, err := smpack.PackSSMsg(msg)
+		if err != nil {
+			log.Errorf("health check %s pb marshal err:%v.\n", rmSvc.serviceAddr, err)
+			continue
+		}
+		d.Send(data)
+	}
+}
+
+func (sc *skymeshSidecar) sendPingAck(srcHandle uint64, ackSeq uint64, dstServerAddr string) {
+	d,err := sc.agentDialers.GetDialer(dstServerAddr)
+	if err != nil {
+		log.Errorf("sendPingAck not find %s dialer %d %d\n", dstServerAddr, srcHandle, ackSeq)
+		return
+	}
+	msg := &smproto.SSMsg{
+		Cmd:                  smproto.SSCmd_RSP_PING_SERVICE,
+		Msg:                  &smproto.SSMsg_ServicePingRsp{
+			ServicePingRsp:&smproto.RspServicePing{
+					Seq:                  ackSeq,
+					SrcHandle:            srcHandle,
+			},
+		},
+	}
+	data, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("sendPingAck %s %d %d pb marshal err:%v.\n", dstServerAddr, srcHandle, ackSeq, err)
+		return
+	}
+	d.Send(data)
+}
+
+func (sc *skymeshSidecar) recvPingAck(srcHandle uint64, ackSeq uint64) {
+	sc.mu.Lock()
+	rmSvc := sc.remoteServices[srcHandle]
+	sc.mu.Unlock()
+	if rmSvc == nil {
+		log.Errorf("recvPingAck not find service %d %d", srcHandle, ackSeq)
+		return
+	}
+	rmSvc.PingAck(ackSeq)
 }
 
 func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
@@ -153,7 +252,6 @@ func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
 	} else {
 		rh := e.serviceAddr.AddrHandle
 		rsname := e.serviceAddr.ServiceName
-		sc.mu.Lock()
 		rmsvc := sc.remoteServices[rh]
 		if rmsvc == nil {
 			log.Errorf("recv service %s repeat offline msg.\n", e.serviceAddr)
@@ -163,16 +261,21 @@ func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
 	}
 }
 
-func (sc *skymeshSidecar) GetBestQualityService(serviceName string) *remoteService { //Todo: 改成通过心跳包探测不同链路延迟,取最佳
+func (sc *skymeshSidecar) GetBestQualityService(serviceName string) *remoteService {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	var bestSvc *remoteService
-	for rh, rmsvc := range sc.remoteGroupServices[serviceName] {
+	var bestRTT int64
+	for _, rmsvc := range sc.remoteGroupServices[serviceName] {
 		if bestSvc == nil {
 			bestSvc = rmsvc
+			bestRTT = rmsvc.CalAverageRTT()
+			continue
 		}
-		if bestSvc.serviceAddr.AddrHandle < rh {
+		rtt := rmsvc.CalAverageRTT()
+		if rtt < bestRTT {
 			bestSvc = rmsvc
+			bestRTT = rtt
 		}
 	}
 	return bestSvc
@@ -260,6 +363,8 @@ func (sc *skymeshSidecar) getRemoteServiceInsts(svcName string) (handles []uint6
 }
 
 func (sc *skymeshSidecar) Release() {
+	sc.keepaliveTicker.Stop()
+	sc.healthTicker.Stop()
 	sc.nameserverDialer.Shutdown()
 	sc.meshserverListener.GracefulStop()
 	sc.agentDialers.Release()

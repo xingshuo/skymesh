@@ -11,8 +11,11 @@ enum SSCmd {
     RSP_REGISTER_SERVICE    = 1003;
     NOTIFY_SERVICE_ONLINE   = 1004;
     REQ_UNREGISTER_SERVICE  = 1005;
+    NOTIFY_NAMESERVER_HEARTBEAT   = 1006;
     //agent && agent 2000 ~ 2999
     NOTIFY_SERVICE_MESSAGE  = 2000;
+    REQ_PING_SERVICE        = 2001;
+    RSP_PING_SERVICE        = 2002;
 }
 
 enum SSError {
@@ -66,6 +69,23 @@ message NotifyServiceMessage {
     bytes       data = 3;
 }
 
+//Agent服务与NameServer心跳
+message NotifyNameServerHeartBeat {
+    uint64 SrcHandle = 1;
+}
+
+//Agent服务间Ping包
+message ReqServicePing {
+    uint64 Seq = 1;
+    uint64 DstHandle = 2;
+    string SrcServerAddr = 3;
+}
+
+message RspServicePing {
+    uint64 Seq = 1;
+    uint64 SrcHandle = 2;
+}
+
 message SSMsg {
   SSCmd cmd = 1;
   oneof Msg
@@ -76,6 +96,9 @@ message SSMsg {
       RspRegisterService register_service_rsp             = 103;
       NotifyServiceOnline notify_service_online           = 104;
       ReqUnRegisterService unregister_service_req         = 105;
+      NotifyNameServerHeartBeat notify_nameserver_hb      = 106;
       NotifyServiceMessage notify_service_message         = 200;
+      ReqServicePing     service_ping_req                 = 201;
+      RspServicePing     service_ping_rsp                 = 202;
   }
 }

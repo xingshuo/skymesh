@@ -12,8 +12,8 @@ import (
 )
 
 type Server interface {
-	Register(serviceName string, service Service) error //注册服务
-	UnRegister(serviceName string) error  //注销服务
+	Register(serviceUrl string, service Service) error //注册服务
+	UnRegister(serviceUrl string) error  //注销服务
 	GetNameResolver(serviceName string) NameResolver //返回serviceName的名字解析器
 	Send(srcServiceUrl string, dstHandle uint64, b []byte) error //定向发送, 适用有状态服务
 	SendByRouter(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
@@ -21,7 +21,7 @@ type Server interface {
 	GracefulStop() //优雅退出
 }
 
-func NewServer(conf string, appID string) (Server, error) { //每个进程只启动一个实例
+func NewServer(conf string, appID string) (Server, error) { //每个进程每个appid只启动一个实例
 	s := &skymeshServer{}
 	err := s.Init(conf, appID)
 	if err != nil {
@@ -38,7 +38,7 @@ type skymeshServer struct {
 	quit       *smsync.Event
 	done       *smsync.Event
 	errQueue   chan error
-	recvQueue  chan *Message
+	recvQueue  chan Message
 	eventQueue chan interface{}
 	serviceWG  sync.WaitGroup
 
@@ -55,14 +55,12 @@ func (s *skymeshServer) Init(conf string, appID string) error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	//数据结构初始化
 	s.appID = appID
 	s.quit = smsync.NewEvent("skymesh.skymeshServer.quit")
 	s.done = smsync.NewEvent("skymesh.skymeshServer.done")
 	s.errQueue = make(chan error, 1)
-	s.recvQueue = make(chan *Message, s.cfg.RecvQueueSize)
+	s.recvQueue = make(chan Message, s.cfg.RecvQueueSize)
 	s.eventQueue = make(chan interface{}, s.cfg.EventQueueSize)
 	s.urlServices = make(map[string]*skymeshService)
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
@@ -80,12 +78,17 @@ func (s *skymeshServer) Init(conf string, appID string) error {
 func (s *skymeshServer) loadConfig(conf string) error {
 	data, err := ioutil.ReadFile(conf)
 	if err != nil {
-		log.Errorf("load config %s failed:%v", conf, err)
+		log.Errorf("load config %s failed:%v\n", conf, err)
 		return err
 	}
 	err = json.Unmarshal(data, &s.cfg)
 	if err != nil {
-		log.Errorf("load config %s failed:%v.", conf, err)
+		log.Errorf("load config %s failed:%v.\n", conf, err)
+		return err
+	}
+	err = s.cfg.CheckConfig()
+	if err != nil {
+		log.Errorf("check config err:%v.\n", err)
 		return err
 	}
 	return nil
@@ -116,7 +119,7 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 		service:  service,
 		quit:     smsync.NewEvent("skymesh.skymeshService.quit"),
 		done:     smsync.NewEvent("skymesh.skymeshService.done"),
-		msgQueue: make(chan *Message, s.cfg.ServiceQueueSize),
+		msgQueue: make(chan Message, s.cfg.ServiceQueueSize),
 	}
 	s.urlServices[serviceUrl] = svc
 	s.handleServices[addr.AddrHandle] = svc
@@ -178,7 +181,7 @@ func (s *skymeshServer) Serve() error {
 				}
 			}
 		case msg := <-s.recvQueue: //这里要优先处理消息??
-			dh := msg.dstHandle
+			dh := msg.GetDstHandle()
 			s.mu.Lock()
 			svc := s.handleServices[dh]
 			if svc != nil {
@@ -192,7 +195,7 @@ func (s *skymeshServer) Serve() error {
 			log.Info("start handle remain msg.\n")
 			for len(s.recvQueue) > 0 {
 				msg := <-s.recvQueue
-				dh := msg.dstHandle
+				dh := msg.GetDstHandle()
 				s.mu.Lock()
 				svc := s.handleServices[dh]
 				if svc != nil {
@@ -293,7 +296,7 @@ func (s *skymeshServer) send(srcAddr *Addr, dstHandle uint64, b []byte) error {
 	dstSvc := s.handleServices[dstHandle]
 	s.mu.Unlock()
 	if dstSvc != nil { //local service message
-		msg := &Message{
+		msg := &DataMessage{
 			srcAddr:   srcAddr,
 			dstHandle: dstHandle,
 			data:      b,
@@ -323,18 +326,28 @@ func (s *skymeshServer) GetNameResolver(serviceName string) NameResolver {
 	return ns
 }
 
-func (s *skymeshServer) getServiceInsts(svcName string) (handles []uint64, insts []uint64) {
+func (s *skymeshServer) getServiceInsts(serviceName string) (handles []uint64, insts []uint64) {
 	//先收集本地service实例信息
 	s.mu.Lock()
-	for lh, svc := range s.nameGroupServices[svcName] {
+	for lh, svc := range s.nameGroupServices[serviceName] {
 		handles = append(handles, lh)
 		insts = append(insts, svc.addr.ServiceId)
 	}
 	s.mu.Unlock()
 	//再收集其他进程服务service实例信息
-	rhs, rinsts := s.sidecar.getRemoteServiceInsts(svcName)
+	rhs, rinsts := s.sidecar.getRemoteServiceInsts(serviceName)
 	//合并
 	handles = append(handles, rhs...)
 	insts = append(insts, rinsts...)
 	return
+}
+
+func (s *skymeshServer) getAllServices() map[uint64]*skymeshService {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	services := make(map[uint64]*skymeshService)
+	for handle,svc := range s.handleServices {
+		services[handle] = svc
+	}
+	return services
 }
