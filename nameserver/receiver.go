@@ -45,7 +45,7 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_NAMESERVER_HEARTBEAT {
-			//Todo: write keepalive logic
+			lr.OnNotifiedServiceHeartbeat(&ssmsg)
 			return
 		}
 	}
@@ -121,6 +121,7 @@ func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 }
 
 func (lr *lisConnReceiver) OnUnRegisterService(ssmsg *smproto.SSMsg) {
+	log.Info("on un-register service\n")
 	req := ssmsg.GetUnregisterServiceReq()
 	if !lr.registered {
 		log.Errorf("app %s not register.", lr.appid)
@@ -133,5 +134,17 @@ func (lr *lisConnReceiver) OnUnRegisterService(ssmsg *smproto.SSMsg) {
 	case lr.server.msg_queue <- msg:
 	default:
 		log.Error("deliver unregister service msg block.\n")
+	}
+}
+
+func (lr *lisConnReceiver) OnNotifiedServiceHeartbeat(ssmsg *smproto.SSMsg) {
+	notify := ssmsg.GetNotifyNameserverHb()
+	msg := &ServiceHeartbeat{
+		addrHandle:notify.SrcHandle,
+	}
+	select {
+	case lr.server.msg_queue <- msg:
+	default:
+		log.Error("deliver service heartbeat msg block.\n")
 	}
 }

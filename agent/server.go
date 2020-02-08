@@ -190,8 +190,6 @@ func (s *skymeshServer) Serve() error {
 			s.mu.Unlock()
 
 		case <-s.quit.Done():
-			log.Info("start server quit.\n")
-			s.sidecar.Release()
 			log.Info("start handle remain msg.\n")
 			for len(s.recvQueue) > 0 {
 				msg := <-s.recvQueue
@@ -209,6 +207,7 @@ func (s *skymeshServer) Serve() error {
 				s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
 				svc.Stop()
 			}
+			s.sidecar.Release()
 			s.urlServices = make(map[string]*skymeshService)
 			s.handleServices = make(map[uint64]*skymeshService)
 			s.nameGroupServices = make(map[string]map[uint64]*skymeshService)

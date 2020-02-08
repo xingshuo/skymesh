@@ -7,12 +7,12 @@ import (
 )
 
 type remoteService struct { //其他skymeshServer服务实例的简要信息
-	serverAddr  string
-	serviceAddr *Addr
-	lastPingSendMS int64 //毫秒
-	avgRTTs []int64 //近n次平均往返延迟
-	curPingSeq uint64  //当前Ping包Seq编号
-	lastAckPingSeq uint64 //上一次收到回复的Ping包编号
+	serverAddr     string
+	serviceAddr    *Addr
+	lastPingSendMS int64   //毫秒
+	rttMetrics     []int64 //近n次往返延迟采样
+	curPingSeq     uint64  //当前Ping包Seq编号
+	lastAckPingSeq uint64  //上一次收到回复的Ping包编号
 }
 
 func (rs *remoteService) onSendPing() {
@@ -21,9 +21,9 @@ func (rs *remoteService) onSendPing() {
 		rs.curPingSeq++
 		rs.lastPingSendMS = sendTime
 	} else {
-		rs.avgRTTs = append(rs.avgRTTs, sendTime - rs.lastPingSendMS)
-		if len(rs.avgRTTs) > AVERAGE_RTT_SAMPLING_NUM {
-			rs.avgRTTs = append(rs.avgRTTs[:0], rs.avgRTTs[1:]...)
+		rs.rttMetrics = append(rs.rttMetrics, sendTime - rs.lastPingSendMS)
+		if len(rs.rttMetrics) > AVERAGE_RTT_SAMPLING_NUM {
+			rs.rttMetrics = append(rs.rttMetrics[:0], rs.rttMetrics[1:]...)
 		}
 		rs.lastAckPingSeq = rs.curPingSeq
 		rs.curPingSeq++
@@ -39,22 +39,22 @@ func (rs *remoteService) PingAck(ackSeq uint64) {
 		return
 	}
 	recvTime := int64(time.Now().UnixNano()/1e6)
-	rs.avgRTTs = append(rs.avgRTTs, recvTime - rs.lastPingSendMS)
-	if len(rs.avgRTTs) > AVERAGE_RTT_SAMPLING_NUM {
-		rs.avgRTTs = append(rs.avgRTTs[:0], rs.avgRTTs[1:]...)
+	rs.rttMetrics = append(rs.rttMetrics, recvTime - rs.lastPingSendMS)
+	if len(rs.rttMetrics) > AVERAGE_RTT_SAMPLING_NUM {
+		rs.rttMetrics = append(rs.rttMetrics[:0], rs.rttMetrics[1:]...)
 	}
 	rs.lastAckPingSeq = ackSeq
 }
 
 func (rs *remoteService) CalAverageRTT() int64 { //毫秒
-	if len(rs.avgRTTs) == 0 {
+	if len(rs.rttMetrics) == 0 {
 		return  0
 	}
 	var sum int64
-	for _,rtt := range rs.avgRTTs {
+	for _,rtt := range rs.rttMetrics {
 		sum = sum + rtt
 	}
-	return sum/int64(len(rs.avgRTTs))
+	return sum/int64(len(rs.rttMetrics))
 }
 
 type Transport interface {

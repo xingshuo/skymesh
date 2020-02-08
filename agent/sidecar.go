@@ -127,17 +127,17 @@ func (sc *skymeshSidecar) Init() error {
 		}
 		log.Info("listener quit.")
 	}()
-	sc.keepaliveTicker = time.NewTicker(5 * time.Second)
+
+	sc.keepaliveTicker = time.NewTicker(time.Duration(sc.server.cfg.ServiceKeepAliveInterval) * time.Second)
 	go func() {
-		for {
-			<-sc.keepaliveTicker.C
+		for range sc.keepaliveTicker.C {
 			sc.keepalive()
 		}
 	}()
-	sc.healthTicker = time.NewTicker(5 * time.Second)
+
+	sc.healthTicker = time.NewTicker(time.Duration(sc.server.cfg.ServicePingInterval) * time.Second)
 	go func() {
-		for {
-			<-sc.healthTicker.C
+		for range sc.healthTicker.C {
 			sc.healthCheck()
 		}
 	}()

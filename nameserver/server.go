@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"sync"
+	"time"
 
 	skymesh "github.com/xingshuo/skymesh/agent"
 	gonet "github.com/xingshuo/skymesh/common/network"
@@ -46,11 +47,18 @@ func (sm *SessionMgr) RemoveSession(serverAddress, appid string) {
 	sm.mu.Unlock()
 }
 
+func (sm *SessionMgr) Release() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.sessions = make(map[AppSession]*lisConnReceiver)
+}
+
 type ServiceInfo struct {
 	serverAddr  string
 	appID       string
 	serviceAddr *skymesh.Addr
 	sessMgr     *SessionMgr
+	lastRecvHbTime int64 //秒级
 }
 
 func (si *ServiceInfo) NotifyApp(b []byte) {
@@ -62,80 +70,6 @@ func (si *ServiceInfo) NotifyApp(b []byte) {
 	lr.Send(b)
 }
 
-type AppInfo struct { //对应一个游戏或应用
-	appID    string
-	services map[uint64]*ServiceInfo
-}
-
-func (a *AppInfo) Init(appid string) {
-	a.appID = appid
-	a.services = make(map[uint64]*ServiceInfo)
-}
-
-func (a *AppInfo) AddItem(si *ServiceInfo) {
-	a.services[si.serviceAddr.AddrHandle] = si
-}
-
-func (a *AppInfo) RemoveItem(handle uint64) {
-	delete(a.services, handle)
-}
-
-func (a *AppInfo) BroadcastOnlineToOthers(si *ServiceInfo, is_online bool) {
-	msg := &smproto.SSMsg{
-		Cmd: smproto.SSCmd_NOTIFY_SERVICE_ONLINE,
-		Msg: &smproto.SSMsg_NotifyServiceOnline{
-			NotifyServiceOnline: &smproto.NotifyServiceOnline{
-				ServerAddr: si.serverAddr,
-				ServiceInfo: &smproto.ServiceInfo{
-					ServiceName: si.serviceAddr.ServiceName,
-					ServiceId:   si.serviceAddr.ServiceId,
-					AddrHandle:  si.serviceAddr.AddrHandle,
-				},
-				IsOnline: is_online,
-			},
-		},
-	}
-	b, err := smpack.PackSSMsg(msg)
-	if err != nil {
-		log.Errorf("pb marshal err:%v.\n", err)
-		return
-	}
-	for _, service := range a.services {
-		if service.serverAddr == si.serverAddr { //只通知其他进程App
-			continue
-		}
-		service.NotifyApp(b)
-	}
-}
-
-func (a *AppInfo) NotifyOthersOnlineToSelf(serverAddr string, lr *lisConnReceiver) {
-	for _, service := range a.services {
-		if service.serverAddr == serverAddr { //只通知自己其他进程service上线消息
-			continue
-		}
-		msg := &smproto.SSMsg{
-			Cmd: smproto.SSCmd_NOTIFY_SERVICE_ONLINE,
-			Msg: &smproto.SSMsg_NotifyServiceOnline{
-				NotifyServiceOnline: &smproto.NotifyServiceOnline{
-					ServerAddr: service.serverAddr,
-					ServiceInfo: &smproto.ServiceInfo{
-						ServiceName: service.serviceAddr.ServiceName,
-						ServiceId:   service.serviceAddr.ServiceId,
-						AddrHandle:  service.serviceAddr.AddrHandle,
-					},
-					IsOnline: true,
-				},
-			},
-		}
-		b, err := smpack.PackSSMsg(msg)
-		if err != nil {
-			log.Errorf("pack %s online pb marshal err:%v.\n", service.serviceAddr, err)
-			continue
-		}
-		lr.Send(b)
-	}
-}
-
 type Server struct {
 	cfg            Config
 	sess_mgr       *SessionMgr
@@ -144,6 +78,7 @@ type Server struct {
 	handleServices map[uint64]*ServiceInfo
 	apps           map[string]*AppInfo
 	quit           *smsync.Event
+	ticker         *time.Ticker
 }
 
 func (s *Server) Init(conf string) error {
@@ -174,6 +109,12 @@ func (s *Server) Init(conf string) error {
 		}
 		s.err_queue <- err
 		log.Info("listener quit.")
+	}()
+	s.ticker = time.NewTicker(time.Duration(s.cfg.ServerTickInterval) * time.Second)
+	go func() {
+		for range s.ticker.C {
+			s.msg_queue <- &TickMsg{}
+		}
 	}()
 	return nil
 }
@@ -227,6 +168,12 @@ func (s *Server) onMessage(msg interface{}) error {
 	case *UnRegServiceMsg:
 		h := msg.(*UnRegServiceMsg).addrHandle
 		return s.UnRegisterService(h)
+	case *ServiceHeartbeat:
+		h := msg.(*ServiceHeartbeat).addrHandle
+		return s.OnServiceHeartbeat(h)
+	case *TickMsg:
+		s.OnTick()
+		return nil
 	default:
 		return fmt.Errorf("unknow msg type")
 	}
@@ -256,7 +203,7 @@ func (s *Server) RegisterApp(serverAddr, appID string) error {
 	if app != nil {
 		log.Infof("re-register app %s.\n", appID)
 	} else {
-		app = &AppInfo{}
+		app = &AppInfo{server:s}
 		app.Init(appID)
 		s.apps[appID] = app
 	}
@@ -278,6 +225,7 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 		appID:       appID,
 		serviceAddr: serviceAddr,
 		sessMgr:     s.sess_mgr,
+		lastRecvHbTime: time.Now().Unix(),
 	}
 	s.handleServices[serviceAddr.AddrHandle] = si
 	app.AddItem(si)
@@ -302,6 +250,7 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 }
 
 func (s *Server) UnRegisterService(addrHandle uint64) error {
+	log.Infof("un register service %d.\n", addrHandle)
 	si := s.handleServices[addrHandle]
 	if si == nil {
 		return fmt.Errorf("unregister not exist handle: %d", addrHandle)
@@ -316,6 +265,33 @@ func (s *Server) UnRegisterService(addrHandle uint64) error {
 	return nil
 }
 
+func (s *Server) OnServiceHeartbeat(addrHandle uint64) error {
+	si := s.handleServices[addrHandle]
+	if si == nil {
+		return fmt.Errorf("service heartbeat not exist handle: %d", addrHandle)
+	}
+	app := s.apps[si.appID]
+	if app == nil {
+		return fmt.Errorf("service heartbeat not exist appID %s.", si.appID)
+	}
+	app.OnServiceHeartbeat(addrHandle)
+	return nil
+}
+
+func (s *Server) OnTick() {
+	for _,app := range s.apps {
+		app.CheckServiceAlive()
+	}
+}
+
 func (s *Server) Stop() {
+	s.ticker.Stop()
 	s.quit.Fire()
+	s.sess_mgr.Release()
+	s.sess_mgr = nil
+	for _,app := range s.apps {
+		app.Release()
+	}
+	s.apps = make(map[string]*AppInfo)
+	s.handleServices = make(map[uint64]*ServiceInfo)
 }

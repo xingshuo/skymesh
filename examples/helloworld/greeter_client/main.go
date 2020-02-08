@@ -49,7 +49,7 @@ func (w *greeterServerWatcher) OnInstOnline(addr *skymesh.Addr) {
 	}
 }
 func (w *greeterServerWatcher) OnInstOffline(addr *skymesh.Addr) {
-	log.Info("service %s inst offline.", addr)
+	log.Infof("service %s inst offline.", addr)
 }
 
 func handleSignal(s skymesh.Server) {
