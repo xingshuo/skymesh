@@ -60,6 +60,7 @@ type skymeshSidecar struct {
 	meshserverListener  *gonet.Listener
 	agentDialers        *AgentDialerMgr
 	remoteServices      map[uint64]*remoteService
+	remoteUrlServices   map[string]*remoteService
 	remoteGroupServices map[string]map[uint64]*remoteService //ServiceName:{ handle: remoteService}
 	healthTicker        *time.Ticker
 	keepaliveTicker     *time.Ticker
@@ -67,6 +68,7 @@ type skymeshSidecar struct {
 
 func (sc *skymeshSidecar) Init() error {
 	sc.remoteServices = make(map[uint64]*remoteService)
+	sc.remoteUrlServices = make(map[string]*remoteService)
 	sc.remoteGroupServices = make(map[string]map[uint64]*remoteService)
 	sc.agentDialers = new(AgentDialerMgr)
 	sc.agentDialers.Init()
@@ -243,6 +245,9 @@ func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
 		}
 		sc.remoteServices[rh] = rmsvc
 
+		url := SkymeshAddr2Url(e.serviceAddr, false)
+		sc.remoteUrlServices[url] = rmsvc
+
 		rsvcs := sc.remoteGroupServices[rsname]
 		if rsvcs == nil {
 			rsvcs = make(map[uint64]*remoteService)
@@ -251,12 +256,14 @@ func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
 		sc.remoteGroupServices[rsname] = rsvcs
 	} else {
 		rh := e.serviceAddr.AddrHandle
+		url := SkymeshAddr2Url(e.serviceAddr, false)
 		rsname := e.serviceAddr.ServiceName
 		rmsvc := sc.remoteServices[rh]
 		if rmsvc == nil {
 			log.Errorf("recv service %s repeat offline msg.\n", e.serviceAddr)
 		}
 		delete(sc.remoteServices, rh)
+		delete(sc.remoteUrlServices, url)
 		delete(sc.remoteGroupServices[rsname], rh)
 	}
 }
@@ -316,6 +323,29 @@ func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, isRegis
 	return nil
 }
 
+func (sc *skymeshSidecar) SendAllRemote(srcAddr *Addr, serviceName string, b []byte) {
+	var rhs []uint64
+	sc.mu.Lock()
+	rmSvc := sc.remoteGroupServices[serviceName]
+	for rh := range rmSvc {
+		rhs = append(rhs, rh)
+	}
+	sc.mu.Unlock()
+	for _,rh := range rhs {
+		sc.SendRemote(srcAddr, rh, b)
+	}
+}
+
+func (sc *skymeshSidecar) SendRemoteBySvcUrl(srcAddr *Addr, dstSvcUrl string, b []byte) error {
+	sc.mu.Lock()
+	rmsvc := sc.remoteUrlServices[dstSvcUrl]
+	sc.mu.Unlock()
+	if rmsvc == nil {
+		return fmt.Errorf("not find dst service url %d", dstSvcUrl)
+	}
+	return sc.SendRemote(srcAddr, rmsvc.serviceAddr.AddrHandle, b)
+}
+
 func (sc *skymeshSidecar) SendRemote(srcAddr *Addr, dstHandle uint64, b []byte) error {
 	sc.mu.Lock()
 	rmsvc := sc.remoteServices[dstHandle]
@@ -363,6 +393,11 @@ func (sc *skymeshSidecar) getRemoteServiceInsts(svcName string) (handles []uint6
 }
 
 func (sc *skymeshSidecar) Release() {
+	sc.mu.Lock()
+	sc.remoteServices = make(map[uint64]*remoteService)
+	sc.remoteUrlServices = make(map[string]*remoteService)
+	sc.remoteGroupServices = make(map[string]map[uint64]*remoteService)
+	sc.mu.Unlock()
 	sc.keepaliveTicker.Stop()
 	sc.healthTicker.Stop()
 	sc.nameserverDialer.Shutdown()

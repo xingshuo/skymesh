@@ -12,13 +12,15 @@ import (
 )
 
 type Server interface {
-	Register(serviceUrl string, service Service) error //注册服务
-	UnRegister(serviceUrl string) error  //注销服务
-	GetNameResolver(serviceName string) NameResolver //返回serviceName的名字解析器
-	Send(srcServiceUrl string, dstHandle uint64, b []byte) error //定向发送, 适用有状态服务
-	SendByRouter(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
-	Serve() error  //阻塞循环
-	GracefulStop() //优雅退出
+	Register(serviceUrl string, service Service) error                              //注册服务
+	UnRegister(serviceUrl string) error                                             //注销服务
+	GetNameResolver(serviceName string) NameResolver                                //返回serviceName的名字解析器
+	Send(srcServiceUrl string, dstHandle uint64, b []byte) error                    //定向发送, 适用有状态服务
+	SendBySvcUrl(srcServiceUrl string, dstServiceUrl string, b []byte) error        //根据服务url,定向发送
+	SendBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error      //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
+	BroadcastBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName 广播给所有对应的服务
+	Serve() error                                                                   //阻塞循环
+	GracefulStop()                                                                  //优雅退出
 }
 
 func NewServer(conf string, appID string) (Server, error) { //每个进程每个appid只启动一个实例
@@ -262,12 +264,35 @@ func (s *skymeshServer) GetBestQualityService(svcName string) *Addr { //优先�
 	return nil
 }
 
-func (s *skymeshServer) SendByRouter(srcServiceUrl string, dstServiceName string, b []byte) error {
+func (s *skymeshServer) BroadcastBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error {
 	s.mu.Lock()
 	srcSvc := s.urlServices[srcServiceUrl]
 	s.mu.Unlock()
 	if srcSvc == nil {
-		return fmt.Errorf("SendByRouter not find service %s", srcServiceUrl)
+		return fmt.Errorf("BroadcastBySvcName not find service %s", srcServiceUrl)
+	}
+	//本地广播
+	s.mu.Lock()
+	for lh,dstSvc := range s.nameGroupServices[dstServiceName] {
+		msg := &DataMessage{
+			srcAddr:   srcSvc.addr,
+			dstHandle: lh,
+			data:      b,
+		}
+		dstSvc.PushMessage(msg)
+	}
+	s.mu.Unlock()
+	//远程广播
+	s.sidecar.SendAllRemote(srcSvc.addr, dstServiceName, b)
+	return nil
+}
+
+func (s *skymeshServer) SendBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error {
+	s.mu.Lock()
+	srcSvc := s.urlServices[srcServiceUrl]
+	s.mu.Unlock()
+	if srcSvc == nil {
+		return fmt.Errorf("SendBySvcName not find service %s", srcServiceUrl)
 	}
 	return s.sendByRouter(srcSvc.addr, dstServiceName, b)
 }
@@ -280,6 +305,28 @@ func (s *skymeshServer) Send(srcServiceUrl string, dstHandle uint64, b []byte) e
 		return fmt.Errorf("Send not find service %s", srcServiceUrl)
 	}
 	return s.send(srcSvc.addr, dstHandle, b)
+}
+
+func (s *skymeshServer) SendBySvcUrl(srcServiceUrl string, dstServiceUrl string, b []byte) error {
+	s.mu.Lock()
+	srcSvc := s.urlServices[srcServiceUrl]
+	s.mu.Unlock()
+	if srcSvc == nil {
+		return fmt.Errorf("SendBySvcUrl not find service %s", srcServiceUrl)
+	}
+	s.mu.Lock()
+	dstSvc := s.urlServices[dstServiceUrl]
+	s.mu.Unlock()
+	if dstSvc != nil {
+		msg := &DataMessage{
+			srcAddr:   srcSvc.addr,
+			dstHandle: dstSvc.addr.AddrHandle,
+			data:      b,
+		}
+		dstSvc.PushMessage(msg)
+		return nil
+	}
+	return s.sidecar.SendRemoteBySvcUrl(srcSvc.addr, dstServiceUrl, b)
 }
 
 func (s *skymeshServer) sendByRouter(srcAddr *Addr, serviceName string, b []byte) error { //针对无状态服务
