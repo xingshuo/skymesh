@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	skymesh "github.com/xingshuo/skymesh/agent"
 	"github.com/xingshuo/skymesh/log"
@@ -15,7 +16,7 @@ var (
 	conf         string
 	appID        = "testApp"
 	svcUrl       = fmt.Sprintf("%s.weixin1.greeterClient/101", appID)
-	watchUrl     = fmt.Sprintf("%s.weixin1.greeterServer", appID)
+	dstUrl       = fmt.Sprintf("%s.weixin1.greeterServer/101", appID)
 	greetMessage = "Nice to meet you."
 )
 
@@ -33,23 +34,6 @@ func (c *greeterClient) OnUnRegister() {
 
 func (c *greeterClient) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
 	log.Infof("recv server reply %s from %s.\n", string(msg), rmtAddr)
-}
-
-type greeterServerWatcher struct {
-	server skymesh.Server
-}
-
-func (w *greeterServerWatcher) OnInstOnline(addr *skymesh.Addr) {
-	log.Infof("service %s inst online.", addr)
-	err := w.server.Send(svcUrl, addr.AddrHandle, []byte(greetMessage))
-	if err != nil {
-		log.Errorf("greeter client send msg err:%v.\n", err)
-	} else {
-		log.Info("send greet msg ok.\n")
-	}
-}
-func (w *greeterServerWatcher) OnInstOffline(addr *skymesh.Addr) {
-	log.Infof("service %s inst offline.", addr)
 }
 
 func handleSignal(s skymesh.Server) {
@@ -78,15 +62,19 @@ func main() {
 		log.Errorf("register %s err:%v\n", svcUrl, err)
 		return
 	}
-	ns := c.server.GetNameResolver(watchUrl)
-	ns.Watch(&greeterServerWatcher{s})
-	//向已经上线的Server端服务发送greetMessage
-	for _, addr := range ns.GetInstsAddr() {
-		s.Send(svcUrl, addr.AddrHandle, []byte(greetMessage))
-	}
+	ticker := time.NewTicker(5 * time.Second)
+	go func() {
+		for range ticker.C {
+			err := s.SendBySvcUrl(svcUrl, dstUrl, []byte(greetMessage))
+			if err != nil {
+				log.Errorf("send message err:%v\n", err)
+			}
+		}
+	}()
 	log.Info("ready to serve.\n")
 	if err = s.Serve(); err != nil {
 		log.Errorf("serve err:%v.\n", err)
 	}
+	ticker.Stop()
 	log.Info("server quit.\n")
 }

@@ -341,7 +341,7 @@ func (sc *skymeshSidecar) SendRemoteBySvcUrl(srcAddr *Addr, dstSvcUrl string, b 
 	rmsvc := sc.remoteUrlServices[dstSvcUrl]
 	sc.mu.Unlock()
 	if rmsvc == nil {
-		return fmt.Errorf("not find dst service url %d", dstSvcUrl)
+		return fmt.Errorf("not find dst service url %s", dstSvcUrl)
 	}
 	return sc.SendRemote(srcAddr, rmsvc.serviceAddr.AddrHandle, b)
 }

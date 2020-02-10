@@ -1,1 +1,1 @@
-.\main.exe -conf=..\configs\server_agent.json
+.\main.exe -conf=.\server.json

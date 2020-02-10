@@ -47,19 +47,36 @@ Api
 Test
 -----
     Windows:
-      Build:
-        .\build.bat
-      
-      Run:
-        1.start nameserver
-          Dir: examples\helloworld\nameserver
-          Cmd: .\nameserver.bat
-        2.start greeter server
-          Dir: examples\helloworld\greeter_server
-          Cmd: .\greeter_server.bat
-        3.start greeter client
-          Dir: examples\helloworld\greeter_client
-          Cmd: .\greeter_client.bat
+      helloworld demo:
+        Build:
+          .\build.bat
+        Run:
+          1.start nameserver
+            Dir: examples\helloworld\nameserver
+            Cmd: .\nameserver.bat
+          2.start greeter server
+            Dir: examples\helloworld\greeter_server
+            Cmd: .\greeter_server.bat
+          3.start greeter client
+            Dir: examples\helloworld\greeter_client
+            Cmd: .\greeter_client.bat
     
+      nameservice demo:
+        Build:
+          .\build.bat
+        Run:
+          1.start nameserver
+            Dir: examples\nameservice\nameserver
+            Cmd: .\nameserver.bat
+          2.start client
+            Dir: examples\nameservice\client
+            Cmd: .\client.bat
+          3.start server 1
+            Dir: examples\nameservice\server
+            Cmd: .\server.bat server1.json 101
+          4.start server 2
+            Dir: examples\nameservice\server
+            Cmd: .\server.bat server2.json 102
+            
     Linux:
       待补充
