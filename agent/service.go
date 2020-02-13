@@ -90,6 +90,13 @@ func (s *skymeshService) GetLocalAddr() *Addr {
 	return s.addr
 }
 
+func (s *skymeshService) OnRegister(result int32) {
+	msg := &RegisterMessage{
+		result:result,
+	}
+	s.PushMessage(msg)
+}
+
 func (s *skymeshService) PushMessage(msg Message) bool {
 	select {
 	case s.msgQueue <- msg:
@@ -115,6 +122,9 @@ func (s *skymeshService) Serve() {
 			case PING_MESSAGE:
 				pingMsg := msg.(*PingMessage)
 				s.server.sidecar.sendPingAck(pingMsg.dstHandle, pingMsg.seq, pingMsg.srcServerAddr)
+			case REGISTER_MESSAGE:
+				regMsg := msg.(*RegisterMessage)
+				s.service.OnRegister(s, regMsg.result)
 			}
 		case <-s.quit.Done():
 			for len(s.msgQueue) > 0 {

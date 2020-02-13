@@ -177,7 +177,7 @@ func (s *skymeshServer) Serve() error {
 				svc := s.handleServices[dh]
 				s.mu.Unlock()
 				if svc != nil {
-					svc.service.OnRegister(svc, result)
+					svc.OnRegister(result)
 				} else {
 					log.Errorf("event not exist handle %d.\n", dh)
 				}

@@ -54,6 +54,7 @@ func (addr *Addr) String() string {
 const (
 	DATA_MESSAE = 1
 	PING_MESSAGE = 2
+	REGISTER_MESSAGE = 3
 )
 
 type Message interface {
@@ -87,6 +88,18 @@ func (m *PingMessage) GetMessageType() int {
 
 func (m *PingMessage) GetDstHandle() uint64 {
 	return m.dstHandle
+}
+
+type RegisterMessage struct {
+	result int32
+}
+
+func (m *RegisterMessage) GetMessageType() int {
+	return REGISTER_MESSAGE
+}
+
+func (m *RegisterMessage) GetDstHandle() uint64 {
+	return 0
 }
 
 type OnlineEvent struct {
