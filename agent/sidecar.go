@@ -89,25 +89,22 @@ func (sc *skymeshSidecar) Init() error {
 	}
 	sc.nameserverDialer = d
 
-	//注册app信息到NameServer
-	go func() {
-		msg := &smproto.SSMsg{
-			Cmd: smproto.SSCmd_REQ_REGISTER_APP,
-			Msg: &smproto.SSMsg_RegisterAppReq{
-				RegisterAppReq: &smproto.ReqRegisterApp{
-					ServerAddr: sc.server.cfg.MeshserverAddress,
-					AppID:      sc.server.appID,
-				},
+	//注册app信息到NameServer(要保证先于Register Service)
+	msg := &smproto.SSMsg{
+		Cmd: smproto.SSCmd_REQ_REGISTER_APP,
+		Msg: &smproto.SSMsg_RegisterAppReq{
+			RegisterAppReq: &smproto.ReqRegisterApp{
+				ServerAddr: sc.server.cfg.MeshserverAddress,
+				AppID:      sc.server.appID,
 			},
-		}
-		b, err := smpack.PackSSMsg(msg)
-		if err != nil {
-			log.Errorf("pb marshal err:%v.\n", err)
-			sc.server.errQueue <- err
-			return
-		}
-		d.Send(b)
-	}()
+		},
+	}
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
+	d.Send(b)
 
 	//监听接收服务消息端口
 	newListenerReceiver := func() gonet.Receiver {
@@ -147,12 +144,12 @@ func (sc *skymeshSidecar) Init() error {
 }
 
 func (sc *skymeshSidecar) keepalive() {
-	for handle,svc := range sc.server.getAllServices() {
+	for handle, svc := range sc.server.getAllServices() {
 		msg := &smproto.SSMsg{
-			Cmd:                  smproto.SSCmd_NOTIFY_NAMESERVER_HEARTBEAT,
-			Msg:                  &smproto.SSMsg_NotifyNameserverHb{
+			Cmd: smproto.SSCmd_NOTIFY_NAMESERVER_HEARTBEAT,
+			Msg: &smproto.SSMsg_NotifyNameserverHb{
 				NotifyNameserverHb: &smproto.NotifyNameServerHeartBeat{
-					SrcHandle:    handle,
+					SrcHandle: handle,
 				},
 			},
 		}
@@ -168,20 +165,20 @@ func (sc *skymeshSidecar) keepalive() {
 func (sc *skymeshSidecar) healthCheck() {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	for _,rmSvc := range sc.remoteServices {
-		d,err := sc.agentDialers.GetDialer(rmSvc.serverAddr)
+	for _, rmSvc := range sc.remoteServices {
+		d, err := sc.agentDialers.GetDialer(rmSvc.serverAddr)
 		if err != nil {
 			log.Errorf("health check not find %s to %s dialer\n", rmSvc.serviceAddr, rmSvc.serverAddr)
 			continue
 		}
 		rmSvc.onSendPing()
 		msg := &smproto.SSMsg{
-			Cmd:                  smproto.SSCmd_REQ_PING_SERVICE,
-			Msg:                  &smproto.SSMsg_ServicePingReq{
+			Cmd: smproto.SSCmd_REQ_PING_SERVICE,
+			Msg: &smproto.SSMsg_ServicePingReq{
 				ServicePingReq: &smproto.ReqServicePing{
-					DstHandle:            rmSvc.serviceAddr.AddrHandle,
-					Seq:				  rmSvc.curPingSeq,
-					SrcServerAddr:        sc.server.cfg.MeshserverAddress,
+					DstHandle:     rmSvc.serviceAddr.AddrHandle,
+					Seq:           rmSvc.curPingSeq,
+					SrcServerAddr: sc.server.cfg.MeshserverAddress,
 				},
 			},
 		}
@@ -195,17 +192,17 @@ func (sc *skymeshSidecar) healthCheck() {
 }
 
 func (sc *skymeshSidecar) sendPingAck(srcHandle uint64, ackSeq uint64, dstServerAddr string) {
-	d,err := sc.agentDialers.GetDialer(dstServerAddr)
+	d, err := sc.agentDialers.GetDialer(dstServerAddr)
 	if err != nil {
 		log.Errorf("sendPingAck not find %s dialer %d %d\n", dstServerAddr, srcHandle, ackSeq)
 		return
 	}
 	msg := &smproto.SSMsg{
-		Cmd:                  smproto.SSCmd_RSP_PING_SERVICE,
-		Msg:                  &smproto.SSMsg_ServicePingRsp{
-			ServicePingRsp:&smproto.RspServicePing{
-					Seq:                  ackSeq,
-					SrcHandle:            srcHandle,
+		Cmd: smproto.SSCmd_RSP_PING_SERVICE,
+		Msg: &smproto.SSMsg_ServicePingRsp{
+			ServicePingRsp: &smproto.RspServicePing{
+				Seq:       ackSeq,
+				SrcHandle: srcHandle,
 			},
 		},
 	}
@@ -331,7 +328,7 @@ func (sc *skymeshSidecar) SendAllRemote(srcAddr *Addr, serviceName string, b []b
 		rhs = append(rhs, rh)
 	}
 	sc.mu.Unlock()
-	for _,rh := range rhs {
+	for _, rh := range rhs {
 		sc.SendRemote(srcAddr, rh, b)
 	}
 }
