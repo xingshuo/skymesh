@@ -1,0 +1,1 @@
+./main.exe -conf=%1 -instid=%2

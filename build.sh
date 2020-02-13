@@ -32,4 +32,4 @@ cd examples/nameservice/server
 rm main.exe
 go build -gcflags "-N -l" -o main.exe main.go
 cd ../../../
-cho "build nameservice server done"
+echo "build nameservice server done"
