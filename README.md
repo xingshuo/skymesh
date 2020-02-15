@@ -44,7 +44,7 @@ Api
       }*/
      //详见examples
      
-Test
+Examples
 -----
     Windows:
       helloworld demo:
@@ -79,4 +79,33 @@ Test
             Cmd: .\server.bat server2.json 102
             
     Linux:
-      待补充
+      helloworld demo:
+        Build:
+          sh build.sh
+        Run:
+          1.start nameserver
+            Dir: examples/helloworld/nameserver
+            Cmd: sh nameserver.sh
+          2.start greeter server
+            Dir: examples/helloworld/greeter_server
+            Cmd: sh greeter_server.sh
+          3.start greeter client
+            Dir: examples/helloworld/greeter_client
+            Cmd: sh greeter_client.sh
+
+      nameservice demo:
+        Build:
+          sh build.sh
+        Run:
+          1.start nameserver
+            Dir: examples/nameservice/nameserver
+            Cmd: sh nameserver.sh
+          2.start client
+            Dir: examples/nameservice/client
+            Cmd: sh client.sh
+          3.start server 1
+            Dir: examples/nameservice/server
+            Cmd: sh server.sh server1.json 101
+          4.start server 2
+            Dir: examples/nameservice/server
+            Cmd: sh server.sh server2.json 102
