@@ -60,6 +60,7 @@ const (
 type Message interface {
 	GetMessageType() int
 	GetDstHandle() uint64 //投递给哪个服务
+	String() string
 }
 
 type DataMessage struct {
@@ -76,6 +77,10 @@ func (m *DataMessage) GetDstHandle() uint64 {
 	return m.dstHandle
 }
 
+func (m *DataMessage) String() string {
+	return fmt.Sprintf("Data Message(%d) from %s to %d ", len(m.data), m.srcAddr, m.dstHandle)
+}
+
 type PingMessage struct {
 	srcServerAddr string
 	seq uint64
@@ -90,8 +95,13 @@ func (m *PingMessage) GetDstHandle() uint64 {
 	return m.dstHandle
 }
 
+func (m *PingMessage) String() string {
+	return fmt.Sprintf("Ping Message(%d) from %s to %d ", m.seq, m.srcServerAddr, m.dstHandle)
+}
+
 type RegisterMessage struct {
 	result int32
+	svcHandle uint64
 }
 
 func (m *RegisterMessage) GetMessageType() int {
@@ -99,7 +109,11 @@ func (m *RegisterMessage) GetMessageType() int {
 }
 
 func (m *RegisterMessage) GetDstHandle() uint64 {
-	return 0
+	return m.svcHandle
+}
+
+func (m *RegisterMessage) String() string {
+	return fmt.Sprintf("Register Message on %d result: %d", m.svcHandle, m.result)
 }
 
 type OnlineEvent struct {

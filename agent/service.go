@@ -93,6 +93,7 @@ func (s *skymeshService) GetLocalAddr() *Addr {
 func (s *skymeshService) OnRegister(result int32) {
 	msg := &RegisterMessage{
 		result:result,
+		svcHandle:s.addr.AddrHandle,
 	}
 	s.PushMessage(msg)
 }
@@ -127,6 +128,7 @@ func (s *skymeshService) Serve() {
 				s.service.OnRegister(s, regMsg.result)
 			}
 		case <-s.quit.Done():
+			log.Infof("service %s recv quit (%d).\n", s.addr, len(s.msgQueue))
 			for len(s.msgQueue) > 0 {
 				msg := <-s.msgQueue
 				switch msg.GetMessageType() {
@@ -138,6 +140,7 @@ func (s *skymeshService) Serve() {
 					s.server.sidecar.sendPingAck(pingMsg.dstHandle, pingMsg.seq, pingMsg.srcServerAddr)
 				}
 			}
+			log.Info("handle service remain msg done.\n")
 			s.done.Fire()
 			return
 		}
@@ -146,6 +149,7 @@ func (s *skymeshService) Serve() {
 
 func (s *skymeshService) Stop() {
 	if s.quit.Fire() {
+		log.Infof("service %s quit fired.\n", s.addr)
 		<-s.done.Done()
 		s.service.OnUnRegister()
 	}

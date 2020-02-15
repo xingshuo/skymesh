@@ -168,7 +168,7 @@ func (sc *skymeshSidecar) healthCheck() {
 	for _, rmSvc := range sc.remoteServices {
 		d, err := sc.agentDialers.GetDialer(rmSvc.serverAddr)
 		if err != nil {
-			log.Errorf("health check not find %s to %s dialer\n", rmSvc.serviceAddr, rmSvc.serverAddr)
+			log.Errorf("health check not find %s to %s dialer err:%v\n", rmSvc.serviceAddr, rmSvc.serverAddr, err)
 			continue
 		}
 		rmSvc.onSendPing()

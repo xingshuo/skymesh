@@ -142,13 +142,16 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 //serviceUrl format : game_id.env_name.svc_name/inst_id
 func (s *skymeshServer) UnRegister(serviceUrl string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if svc := s.urlServices[serviceUrl]; svc != nil {
+	svc := s.urlServices[serviceUrl]
+	s.mu.Unlock()
+	if svc != nil {
 		s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
 		svc.Stop()
+		s.mu.Lock()
 		delete(s.urlServices, serviceUrl)
 		delete(s.handleServices, svc.addr.AddrHandle)
 		delete(s.nameGroupServices[svc.addr.ServiceName], svc.addr.AddrHandle)
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -186,50 +189,18 @@ func (s *skymeshServer) Serve() error {
 			dh := msg.GetDstHandle()
 			s.mu.Lock()
 			svc := s.handleServices[dh]
+			s.mu.Unlock()
 			if svc != nil {
 				svc.PushMessage(msg)
 			}
-			s.mu.Unlock()
 
 		case <-s.quit.Done():
-			log.Info("start handle remain msg.\n")
-			for len(s.recvQueue) > 0 {
-				msg := <-s.recvQueue
-				dh := msg.GetDstHandle()
-				s.mu.Lock()
-				svc := s.handleServices[dh]
-				if svc != nil {
-					svc.PushMessage(msg)
-				}
-				s.mu.Unlock()
-			}
-			log.Info("handle remain msg done.\n")
-			s.mu.Lock()
-			for _, svc := range s.handleServices {
-				s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
-				svc.Stop()
-			}
-			s.sidecar.Release()
-			s.urlServices = make(map[string]*skymeshService)
-			s.handleServices = make(map[uint64]*skymeshService)
-			s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
-			s.resolvers = make(map[string]*skymeshResolver)
-			s.mu.Unlock()
-			log.Info("stop all services done.\n")
-			s.serviceWG.Wait()
-			log.Warning("skymesh server quit!.\n")
-			s.done.Fire()
+			s.Release()
 			return nil
 
 		case err := <-s.errQueue:
 			log.Errorf("server err:%v\n", err)
-			s.mu.Lock()
-			for _, svc := range s.handleServices {
-				svc.Stop()
-			}
-			s.mu.Unlock()
-			log.Warning("skymesh server quit.")
-			s.done.Fire()
+			s.Release()
 			return err
 		}
 	}
@@ -242,6 +213,42 @@ func (s *skymeshServer) GracefulStop() {
 		<-s.done.Done()
 		log.Warning("skymesh graceful stop.\n")
 	}
+}
+
+func (s *skymeshServer) Release() {
+	log.Info("release start.\n")
+	for len(s.recvQueue) > 0 {
+		msg := <-s.recvQueue
+		dh := msg.GetDstHandle()
+		s.mu.Lock()
+		svc := s.handleServices[dh]
+		s.mu.Unlock()
+		if svc != nil {
+			svc.PushMessage(msg)
+		}
+	}
+	log.Info("handle remain msg done.\n")
+	var hSvcs []*skymeshService
+	s.mu.Lock()
+	for _, svc := range s.handleServices {
+		hSvcs = append(hSvcs, svc)
+	}
+	s.mu.Unlock()
+	for _,svc := range hSvcs {
+		s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
+		svc.Stop()
+	}
+	log.Info("stop all services.\n")
+	s.sidecar.Release()
+	s.mu.Lock()
+	s.urlServices = make(map[string]*skymeshService)
+	s.handleServices = make(map[uint64]*skymeshService)
+	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
+	s.resolvers = make(map[string]*skymeshResolver)
+	s.mu.Unlock()
+	s.serviceWG.Wait()
+	log.Warning("all services stop done!.\n")
+	s.done.Fire()
 }
 
 func (s *skymeshServer) GetBestQualityService(svcName string) *Addr { //优先本地,再远程
