@@ -109,3 +109,18 @@ Examples
           4.start server 2
             Dir: examples/nameservice/server
             Cmd: sh server.sh server2.json 102
+      
+      inner_service demo:
+        Build:
+          sh build.sh
+        Run:
+          1.start nameserver
+            Dir: examples/inner_service/nameserver
+            Cmd: sh nameserver.sh
+          2.start server
+            Dir: examples/inner_service/server
+            Cmd: sh server.sh
+          3.start client
+            Dir: examples/inner_service/client
+            Cmd: sh client.sh
+          
