@@ -113,6 +113,7 @@ func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 			AddrHandle:  req.AddrHandle,
 		},
 	}
+	log.Infof("register service %s\n", msg.serviceAddr)
 	select {
 	case lr.server.msg_queue <- msg:
 	default:

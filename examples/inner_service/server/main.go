@@ -7,11 +7,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	skymesh "github.com/xingshuo/skymesh/agent"
 	"github.com/xingshuo/skymesh/log"
 	"github.com/golang/protobuf/proto"
-	"github.com/xingshuo/skymesh/log"
 	pb "github.com/xingshuo/skymesh/examples/inner_service"
 	inner_service "github.com/xingshuo/skymesh/extension/inner_service"
 )
@@ -47,12 +47,20 @@ func onSayHello(ctx context.Context, msg []byte) (interface{}, error) {
 	return proto.Marshal(rsp)
 }
 
+func greetInterceptor(ctx context.Context, b []byte, handler inner_service.HandlerFunc) (interface{}, error) {
+	startTime := time.Now()
+	rsp,err := handler(ctx, b)
+	log.Infof("handle client greet cost time:%vms\n", float64(time.Since(startTime)) / 1e6)
+	return rsp,err
+}
+
 func StartServer(s skymesh.Server) {
 	service,err := inner_service.RegisterService(s, svcUrl)
 	if err != nil {
 		log.Errorf("register SMService err:%v.\n", err)
 		return
 	}
+	service.ApplyServerInterceptors(greetInterceptor)
 	service.RegisterFunc(method, onSayHello)
 }
 

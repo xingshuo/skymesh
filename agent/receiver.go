@@ -137,7 +137,7 @@ func (adr *AgentDialerReceiver) OnConnected(s gonet.Sender) error {
 }
 
 func (adr *AgentDialerReceiver) OnMessage(s gonet.Sender, b []byte) (n int, err error) {
-	log.Error("agent dialer recv unexpect stream %v.", b)
+	log.Error("agent dialer recv unexpect stream %v.\n", b)
 	return 0, nil
 }
 

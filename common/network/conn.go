@@ -56,13 +56,18 @@ func (c *Conn) loopRead() error {
 		if c.rbuff.Len() <= 0 {
 			continue
 		}
-		rn, err := c.receiver.OnMessage(c, c.rbuff.Bytes())
-		if err != nil {
-			return err
+		for {
+			rn, err := c.receiver.OnMessage(c, c.rbuff.Bytes())
+			if err != nil {
+				return err
+			}
+			if rn > 0 {
+				c.rbuff.Next(rn)
+			} else {
+				break
+			}
 		}
-		if rn > 0 {
-			c.rbuff.Next(rn)
-		}
+
 	}
 }
 

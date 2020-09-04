@@ -64,7 +64,7 @@ type ServiceInfo struct {
 func (si *ServiceInfo) NotifyApp(b []byte) {
 	lr := si.sessMgr.GetSession(si.serverAddr, si.appID)
 	if lr == nil {
-		log.Error("lost session(%s,%s) when broadcast.", si.serverAddr, si.appID)
+		log.Errorf("lost session(%s,%s) when broadcast.\n", si.serverAddr, si.appID)
 		return
 	}
 	lr.Send(b)
@@ -243,6 +243,7 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 	if err != nil {
 		log.Errorf("pb marshal err:%v.\n", err)
 	} else {
+		log.Infof("notify service %s register rsp\n", serviceAddr)
 		si.NotifyApp(b)
 	}
 	app.BroadcastOnlineToOthers(si, true)

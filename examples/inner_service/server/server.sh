@@ -1,1 +1,1 @@
-./main.exe -conf=%1 -instid=%2
+./main.exe -conf=./server.json

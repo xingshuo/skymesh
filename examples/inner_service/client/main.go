@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 	"context"
+	"time"
 
 	skymesh "github.com/xingshuo/skymesh/agent"
 	"github.com/xingshuo/skymesh/log"
@@ -37,13 +37,14 @@ func handleSignal(s skymesh.Server) {
 	}
 }
 
-func greetServer(s skymesh.Server) {
-	service,err := inner_service.RegisterService(s, svcUrl)
-	if err != nil {
-		log.Errorf("register SMService err:%v.\n", err)
-		return
-	}
+func greetInterceptor(ctx context.Context, b []byte, handler inner_service.HandlerFunc) (interface{}, error) {
+	startTime := time.Now()
+	rsp,err := handler(ctx, b)
+	log.Infof("greet rpc cost time:%vms\n", float64(time.Since(startTime)) / 1e6)
+	return rsp,err
+}
 
+func greetServer(service inner_service.SMService) {
 	reqMsg, err := proto.Marshal(&pb.HelloRequest{Name:NotifyName})
 	if err != nil {
 		log.Errorf("notify proto Marshal err:%v.\n", err)
@@ -61,7 +62,7 @@ func greetServer(s skymesh.Server) {
 		return
 	}
 
-	rspMsg,err := service.CallService(context.Background(), dstUrl, dstMethod, reqMsg, 3000)
+	rspMsg,err := service.CallService(context.Background(), dstUrl, dstMethod, reqMsg, 10000)
 	if err != nil {
 		log.Errorf("call SMService err:%v.\n", err)
 		return
@@ -83,11 +84,24 @@ func main() {
 		return
 	}
 	go handleSignal(s)
-	go greetServer(s)
+
+	ticker := time.NewTicker(3 * time.Second)
+	go func() {
+		service,err := inner_service.RegisterService(s, svcUrl)
+		if err != nil {
+			log.Errorf("register SMService err:%v.\n", err)
+			return
+		}
+		service.ApplyClientInterceptors(greetInterceptor)
+		for range ticker.C {
+			greetServer(service)
+		}
+	}()
 
 	log.Info("ready to serve.\n")
 	if err = s.Serve(); err != nil {
 		log.Errorf("serve err:%v.\n", err)
 	}
+	ticker.Stop()
 	log.Info("server quit.\n")
 }

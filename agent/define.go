@@ -48,7 +48,7 @@ type Addr struct {
 }
 
 func (addr *Addr) String() string {
-	return fmt.Sprintf("Addr - ServiceName[%s] ServiceId[%v]", addr.ServiceName, addr.ServiceId)
+	return fmt.Sprintf("Addr - ServiceName[%s] ServiceId[%v] Handle[%v]", addr.ServiceName, addr.ServiceId, addr.AddrHandle)
 }
 
 const (
