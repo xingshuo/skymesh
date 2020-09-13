@@ -5,7 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
+	"os/signal"
 	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
 
 	smsync "github.com/xingshuo/skymesh/common/sync"
 	"github.com/xingshuo/skymesh/log"
@@ -23,26 +28,41 @@ type Server interface {
 	GracefulStop()                                                                  //优雅退出
 }
 
-func NewServer(conf string, appID string) (Server, error) { //每个进程每个appid只启动一个实例
+func NewServer(conf string, appID string, doServe bool) (Server, error) { //每个进程每个appid只启动一个实例
 	s := &skymeshServer{}
-	err := s.Init(conf, appID)
+	err := s.Init(conf, appID, doServe)
 	if err != nil {
 		return nil, err
 	}
 	return s, err
 }
 
+type GraceServer interface {
+	GracefulStop()
+}
+
+//接收指定信号，优雅退出接口
+//GraceServer可以是skymeshServer, grpcServer...
+func WaitSignalToStop(s GraceServer, sigs ...os.Signal) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, sigs...)
+	sig := <-c
+	log.Infof("Server(%v) exit with signal(%d)\n", syscall.Getpid(), sig)
+	s.GracefulStop()
+}
+
 type skymeshServer struct {
 	appID string
 	cfg   Config
 
-	mu         sync.Mutex
+	mu         sync.Mutex //Todo: 替换成sync.RWMutex
 	quit       *smsync.Event
 	done       *smsync.Event
 	errQueue   chan error
 	recvQueue  chan Message
 	eventQueue chan interface{}
 	serviceWG  sync.WaitGroup
+	state 	   int32
 
 	urlServices       map[string]*skymeshService            //key is Service Url
 	nameGroupServices map[string]map[uint64]*skymeshService //first floor key is ServiceName(不含实例id)
@@ -51,7 +71,7 @@ type skymeshServer struct {
 	sidecar           *skymeshSidecar
 }
 
-func (s *skymeshServer) Init(conf string, appID string) error {
+func (s *skymeshServer) Init(conf string, appID string, doServe bool) error {
 	//加载配置(必须放第一步)
 	err := s.loadConfig(conf)
 	if err != nil {
@@ -59,6 +79,7 @@ func (s *skymeshServer) Init(conf string, appID string) error {
 	}
 	//数据结构初始化
 	s.appID = appID
+	s.state = kSkymeshServerIdle
 	s.quit = smsync.NewEvent("skymesh.skymeshServer.quit")
 	s.done = smsync.NewEvent("skymesh.skymeshServer.done")
 	s.errQueue = make(chan error, 1)
@@ -73,6 +94,28 @@ func (s *skymeshServer) Init(conf string, appID string) error {
 	err = s.sidecar.Init()
 	if err != nil {
 		return err
+	}
+
+	if doServe {
+		//这里是否需要阻塞确认Running状态再返回?
+		errNotify := make(chan error, 1)
+		go func() {
+			err := s.Serve()
+			if err != nil {
+				log.Errorf("run serve error:%v", err)
+				errNotify <- err
+			}
+		}()
+		select {
+		case <-time.After(2 * time.Second):
+			if s.isInState(kSkymeshServerRunning) {
+				return nil
+			} else {
+				return errors.New(fmt.Sprintf("do serve timeout:%v", s.state))
+			}
+		case err := <- errNotify:
+			return err
+		}
 	}
 	return nil
 }
@@ -96,15 +139,16 @@ func (s *skymeshServer) loadConfig(conf string) error {
 	return nil
 }
 
-//serviceUrl format : game_id.env_name.svc_name/inst_id
+//serviceUrl format : [skymesh://]game_id.env_name.svc_name/inst_id
 func (s *skymeshServer) Register(serviceUrl string, service Service) error {
+	serviceUrl = StripSkymeshUrlPrefix(serviceUrl)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	log.Infof("register service: %s\n", serviceUrl)
 	if _, ok := s.urlServices[serviceUrl]; ok {
 		return errors.New("skymesh register service repeated")
 	}
-	addr, err := SkymeshUrl2Addr(serviceUrl, false)
+	addr, err := SkymeshUrl2Addr(serviceUrl)
 	if err != nil {
 		return errors.New("service url format err, should be skymesh://service_name/service_id")
 	}
@@ -139,8 +183,9 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 	return nil
 }
 
-//serviceUrl format : game_id.env_name.svc_name/inst_id
+//serviceUrl format : [skymesh://]game_id.env_name.svc_name/inst_id
 func (s *skymeshServer) UnRegister(serviceUrl string) error {
+	serviceUrl = StripSkymeshUrlPrefix(serviceUrl)
 	s.mu.Lock()
 	svc := s.urlServices[serviceUrl]
 	s.mu.Unlock()
@@ -156,7 +201,22 @@ func (s *skymeshServer) UnRegister(serviceUrl string) error {
 	return nil
 }
 
+func (s *skymeshServer) setState(st int32) bool {
+	oldSt := atomic.LoadInt32(&s.state)
+	if oldSt != st {
+		return atomic.CompareAndSwapInt32(&s.state, oldSt, st)
+	}
+	return false
+}
+
+func (s *skymeshServer) isInState(st int32) bool {
+	return atomic.LoadInt32(&s.state) == st
+}
+
 func (s *skymeshServer) Serve() error {
+	if !s.setState(kSkymeshServerRunning) {
+		return errors.New("server already on serving")
+	}
 	for {
 		select {
 		case event := <-s.eventQueue:
@@ -216,7 +276,12 @@ func (s *skymeshServer) GracefulStop() {
 }
 
 func (s *skymeshServer) Release() {
+	if !s.isInState(kSkymeshServerRunning) {
+		log.Error("try to release no running server.\n")
+		return
+	}
 	log.Info("release start.\n")
+	s.setState(kSkymeshServerStop)
 	for len(s.recvQueue) > 0 {
 		msg := <-s.recvQueue
 		dh := msg.GetDstHandle()
@@ -374,7 +439,7 @@ func (s *skymeshServer) GetNameResolver(serviceName string) NameResolver {
 	s.mu.Unlock()
 	handles, insts := s.getServiceInsts(serviceName)
 	for idx, instID := range insts {
-		ns.instAddrs[instID] = &Addr{ServiceName: serviceName, ServiceId: instID, AddrHandle: handles[idx]}
+		ns.AddInstsAddr(instID, &Addr{ServiceName: serviceName, ServiceId: instID, AddrHandle: handles[idx]})
 	}
 	return ns
 }

@@ -67,7 +67,7 @@ func StartServer(s skymesh.Server) {
 func main() {
 	flag.StringVar(&conf,"conf", "config.json", "greeter server config")
 	flag.Parse()
-	s,err := skymesh.NewServer(conf, appID)
+	s,err := skymesh.NewServer(conf, appID, false)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return

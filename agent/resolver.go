@@ -16,8 +16,8 @@ type NameResolver interface {
 type skymeshResolver struct {
 	mu sync.Mutex
 	svcName   string
-	instAddrs map[uint64]*Addr
-	watchers  map[NameWatcher]bool
+	instAddrs map[uint64]*Addr //后续考虑改成sync.Map
+	watchers  map[NameWatcher]bool //后续考虑改成sync.Map
 }
 
 func (sr *skymeshResolver) Watch(w NameWatcher) {
@@ -29,6 +29,12 @@ func (sr *skymeshResolver) Watch(w NameWatcher) {
 func (sr *skymeshResolver) UnWatch(w NameWatcher) {
 	sr.mu.Lock()
 	delete(sr.watchers, w)
+	sr.mu.Unlock()
+}
+
+func (sr *skymeshResolver) AddInstsAddr(instID uint64, instAddr *Addr) {
+	sr.mu.Lock()
+	sr.instAddrs[instID] = instAddr
 	sr.mu.Unlock()
 }
 

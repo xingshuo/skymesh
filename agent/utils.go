@@ -101,20 +101,14 @@ func MakeServiceHandle(serverAddr string, serviceName string, serviceID uint64) 
 	return instID
 }
 
-var schema string = "skymesh"
+const skymeshSchema = "skymesh"
 
-//skymesh url 格式地址: [skymesh://]service_name/service_id
-//service_name fmt: appid.env_name.service_name
-func SkymeshUrl2Addr(url string, withPrefix bool) (*Addr, error) {
-	prefix := ""
-	if withPrefix {
-		prefix = fmt.Sprintf("%s://", schema)
-		if !strings.HasPrefix(url, prefix) {
-			return nil, fmt.Errorf("skymesh url should start with %s", prefix)
-		}
-	}
-
-	urlItems := strings.Split(url[len(prefix):], "/")
+//skymesh url 格式地址: [skymesh://]ServiceName/service_id
+//ServiceName fmt: appid.env_name.service_name
+//注意: skymeshServer.Register时使用, service_id不能省略
+func SkymeshUrl2Addr(url string) (*Addr, error) {
+	rawUrl := StripSkymeshUrlPrefix(url)
+	urlItems := strings.Split(rawUrl, "/")
 	if len(urlItems) != 2 {
 		return nil, fmt.Errorf("skymesh url shoule be service_name/service_id")
 	}
@@ -125,19 +119,40 @@ func SkymeshUrl2Addr(url string, withPrefix bool) (*Addr, error) {
 func SkymeshAddr2Url(addr *Addr, withPrefix bool) string {
 	prefix := ""
 	if withPrefix {
-		prefix = fmt.Sprintf("%s://", schema)
+		prefix = fmt.Sprintf("%s://", skymeshSchema)
 	}
 	return prefix + fmt.Sprintf("%s/%v", addr.ServiceName, addr.ServiceId)
 }
 
-func ParseServiceName(service_name string) (err error, appid string, env_name string, svc_name string) {
-	s := strings.Split(service_name, ".")
+func StripSkymeshUrlPrefix(url string) string {
+	prefix := fmt.Sprintf("%s://", skymeshSchema)
+	if !strings.HasPrefix(url, prefix) {
+		return url
+	}
+	return url[len(prefix):]
+}
+
+func GetSkymeshSchema() string {
+	return skymeshSchema
+}
+
+//skymesh url fmt: [skymesh://]appid.env_name.service_name[/service_id]
+func ParseSkymeshUrl(url string) (appID string, envName string, svcName string, svcInstID uint64, err error) {
+	rawUrl := StripSkymeshUrlPrefix(url)
+	urlItems := strings.Split(rawUrl, "/")
+	fullSvcName := rawUrl
+	svcInstID = 0
+	if len(urlItems) == 2 { //url include service_id
+		fullSvcName = urlItems[0]
+		svcInstID,_ = strconv.ParseUint(urlItems[1], 10, 64)
+	}
+	s := strings.Split(fullSvcName, ".")
 	if len(s) != 3 {
 		err = fmt.Errorf("skymesh ServiceName fmt err, appid.env_name.service_name expected")
 		return
 	}
-	appid = s[0]
-	env_name = s[1]
-	svc_name = s[3]
+	appID = s[0]
+	envName = s[1]
+	svcName = s[2]
 	return
 }

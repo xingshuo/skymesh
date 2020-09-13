@@ -78,7 +78,7 @@ func greetServer(service inner_service.SMService) {
 func main() {
 	flag.StringVar(&conf, "conf", "config.json", "greeter client config")
 	flag.Parse()
-	s, err := skymesh.NewServer(conf, appID)
+	s, err := skymesh.NewServer(conf, appID, false)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return

@@ -47,7 +47,7 @@ func main() {
 	flag.StringVar(&conf,"conf", "config.json", "server config")
 	flag.Uint64Var(&svcInstId, "instid", svcInstId, "name service inst id")
 	flag.Parse()
-	s,err := skymesh.NewServer(conf, appID)
+	s,err := skymesh.NewServer(conf, appID, false)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return

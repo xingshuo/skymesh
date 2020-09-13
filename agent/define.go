@@ -6,6 +6,12 @@ const (
 	AVERAGE_RTT_SAMPLING_NUM = 5 //计算平均延迟的采样次数
 )
 
+const (
+	kSkymeshServerIdle int32 = iota
+	kSkymeshServerRunning
+	kSkymeshServerStop
+)
+
 type Config struct {
 	NameserverAddress string //名字服务ip:port
 	MeshserverAddress string //本进程/容器 mesh地址 ip:port
@@ -49,6 +55,10 @@ type Addr struct {
 
 func (addr *Addr) String() string {
 	return fmt.Sprintf("Addr - ServiceName[%s] ServiceId[%v] Handle[%v]", addr.ServiceName, addr.ServiceId, addr.AddrHandle)
+}
+
+func (addr *Addr) Network() string {
+	return skymeshSchema
 }
 
 const (

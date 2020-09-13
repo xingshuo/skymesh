@@ -27,7 +27,7 @@ Architecture
 Api
 -----
     //core api:
-    s, err := skymesh.NewServer(conf, appID)
+    s, err := skymesh.NewServer(conf, appID, doServe)
     //每个进程每个类型app只启动一个实例
     //s是skymeshServer外部能力的抽象接口Server的实例
     //Server定义
