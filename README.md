@@ -1,6 +1,22 @@
 Skymesh
 ========
-    基于golang编写的service mesh理念实践的一种实现方式, 目前主要提供了名字服务能力, 其他功能正在陆续补充
+    基于golang编写的service mesh理念实践的一种实现方式.
+    目前支持主要功能:
+        *名字服务能力
+        *支持自定义协议rpc通信的基础服务(inner_service)
+        *grpc支持(skymesh名字服务打通 && 继承其原生能力)
+    待补充的功能:
+        *metric模块
+        *trace模块
+        *log模块扩充
+        *路由选择方案支持(轮询、一致性hash、用户自定义...)
+        *主备节点选举
+        *路由节点状态变更通知
+    待优化的功能:
+        *性能优化(sync.Mutex -> sync.RWMutex, map -> sync.Map...)
+        *节点上下线流程完善(防止数据比上线事件先到之类)
+        *节点Event和Data使用统一recv chan
+        *gonet模块重构(copy on write)
 
 summary
 -------
@@ -13,8 +29,6 @@ summary
 pre-env
 -------
     golang 1.13及以上
-    protoc 3.x
-    protoc-gen-go
 
 platform
 -----
@@ -78,6 +92,34 @@ Examples
             Dir: examples\nameservice\server
             Cmd: .\server.bat server2.json 102
             
+      inner_service demo: 
+        Build:
+          .\build.bat
+        Run:
+          1.start nameserver
+            Dir: examples\inner_service\nameserver
+            Cmd: .\nameserver.bat
+          2.start server
+            Dir: examples\inner_service\server
+            Cmd: .\server.bat
+          3.start client
+            Dir: examples\inner_service\client
+            Cmd: .\client.bat
+      
+      grpc helloworld demo:
+        Build:
+          .\build.bat
+        Run:
+          1.start nameserver
+            Dir: examples\grpc\helloworld\nameserver
+            Cmd: .\nameserver.bat
+          2.start server
+            Dir: examples\grpc\helloworld\greeter_server
+            Cmd: .\greeter_server.bat
+          3.start client
+            Dir: examples\grpc\helloworld\greeter_client
+            Cmd: .\greeter_client.bat
+         
     Linux:
       helloworld demo:
         Build:
@@ -123,4 +165,17 @@ Examples
           3.start client
             Dir: examples/inner_service/client
             Cmd: sh client.sh
-          
+      
+      grpc helloworld demo:
+        Build:
+          sh build.sh
+        Run:
+          1.start nameserver
+            Dir: examples/grpc/helloworld/nameserver
+            Cmd: sh nameserver.sh
+          2.start server
+            Dir: examples/grpc/helloworld/greeter_server
+            Cmd: sh greeter_server.sh
+          3.start client
+            Dir: examples/grpc/helloworld/greeter_client
+            Cmd: sh greeter_client.sh
