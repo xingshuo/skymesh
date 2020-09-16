@@ -92,7 +92,7 @@ func (s *Server) Init(conf string) error {
 	s.err_queue = make(chan error, 1)
 	s.handleServices = make(map[uint64]*ServiceInfo)
 	s.apps = make(map[string]*AppInfo)
-	s.quit = smsync.NewEvent("nameserver.Server.quit")
+	s.quit = smsync.NewEvent("nameserver.MeshServer.quit")
 
 	newReceiver := func() gonet.Receiver {
 		return &lisConnReceiver{server: s}
@@ -174,9 +174,21 @@ func (s *Server) onMessage(msg interface{}) error {
 	case *TickMsg:
 		s.OnTick()
 		return nil
+	case *ServiceSyncAttr:
+		h := msg.(*ServiceSyncAttr).addrHandle
+		attrs := msg.(*ServiceSyncAttr).attrs
+		return s.OnServiceSyncAttr(h, attrs)
 	default:
 		return fmt.Errorf("unknow msg type")
 	}
+}
+
+func (s *Server) GetSession(serverAddr, appID string) *lisConnReceiver {
+	lr := s.sess_mgr.GetSession(serverAddr, appID)
+	if lr == nil {
+		log.Errorf("get (%s, %s)session failed.\n", serverAddr, appID)
+	}
+	return lr
 }
 
 func (s *Server) RegisterApp(serverAddr, appID string) error {
@@ -212,15 +224,15 @@ func (s *Server) RegisterApp(serverAddr, appID string) error {
 }
 
 func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *skymesh.Addr) error {
-	service := s.handleServices[serviceAddr.AddrHandle]
-	if service != nil {
+	si := s.handleServices[serviceAddr.AddrHandle]
+	if si != nil {
 		return fmt.Errorf("re-register service %s", serviceAddr)
 	}
 	app := s.apps[appID]
 	if app == nil {
 		return fmt.Errorf("register not exist appID %s.", appID)
 	}
-	si := &ServiceInfo{
+	si = &ServiceInfo{
 		serverAddr:  serverAddr,
 		appID:       appID,
 		serviceAddr: serviceAddr,
@@ -276,6 +288,19 @@ func (s *Server) OnServiceHeartbeat(addrHandle uint64) error {
 		return fmt.Errorf("service heartbeat not exist appID %s.", si.appID)
 	}
 	app.OnServiceHeartbeat(addrHandle)
+	return nil
+}
+
+func (s *Server) OnServiceSyncAttr(addrHandle uint64, attrs []byte) error {
+	si := s.handleServices[addrHandle]
+	if si == nil {
+		return fmt.Errorf("service sync attr not exist handle: %d", addrHandle)
+	}
+	app := s.apps[si.appID]
+	if app == nil {
+		return fmt.Errorf("service sync attr not exist appID %s.", si.appID)
+	}
+	app.BroadcastSyncServiceAttr(si, attrs)
 	return nil
 }
 

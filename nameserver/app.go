@@ -33,6 +33,45 @@ func (a *AppInfo) RemoveItem(handle uint64) {
 	}
 }
 
+func (a *AppInfo) BroadcastToOthers(si *ServiceInfo, b []byte) {
+	notifys := make(map[string]bool)
+	for _, siItem := range a.services {
+		service := siItem.Value.(*ServiceInfo)
+		if si != nil && service.serverAddr == si.serverAddr { //只通知其他进程App
+			continue
+		}
+		notifys[service.serverAddr] = true
+	}
+	for saddr := range notifys {
+		lr := a.server.GetSession(saddr, a.appID)
+		if lr != nil {
+			lr.Send(b)
+		}
+	}
+}
+
+func (a *AppInfo) BroadcastSyncServiceAttr(si *ServiceInfo, attrs []byte) {
+	msg := &smproto.SSMsg{
+		Cmd: smproto.SSCmd_NOTIFY_SERVICE_SYNCATTR,
+		Msg: &smproto.SSMsg_NotifyServiceAttr{
+			NotifyServiceAttr: &smproto.NotifyServiceSyncAttr{
+				ServiceInfo: &smproto.ServiceInfo{
+					ServiceName: si.serviceAddr.ServiceName,
+					ServiceId:   si.serviceAddr.ServiceId,
+					AddrHandle:  si.serviceAddr.AddrHandle,
+				},
+				Data: attrs,
+			},
+		},
+	}
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return
+	}
+	a.BroadcastToOthers(si, b)
+}
+
 func (a *AppInfo) BroadcastOnlineToOthers(si *ServiceInfo, is_online bool) {
 	msg := &smproto.SSMsg{
 		Cmd: smproto.SSCmd_NOTIFY_SERVICE_ONLINE,
@@ -53,15 +92,10 @@ func (a *AppInfo) BroadcastOnlineToOthers(si *ServiceInfo, is_online bool) {
 		log.Errorf("pb marshal err:%v.\n", err)
 		return
 	}
-	for _, siItem := range a.services {
-		service := siItem.Value.(*ServiceInfo)
-		if service.serverAddr == si.serverAddr { //只通知其他进程App
-			continue
-		}
-		service.NotifyApp(b)
-	}
+	a.BroadcastToOthers(si, b)
 }
 
+//这里可以一条协议通知某cluster上所有服务给自己,后面优化
 func (a *AppInfo) NotifyOthersOnlineToSelf(serverAddr string, lr *lisConnReceiver) {
 	for _, siItem := range a.services {
 		service := siItem.Value.(*ServiceInfo)

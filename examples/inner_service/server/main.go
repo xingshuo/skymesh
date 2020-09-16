@@ -25,7 +25,7 @@ var (
 )
 
 
-func handleSignal(s skymesh.Server) {
+func handleSignal(s skymesh.MeshServer) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c)
 	for sig := range c {
@@ -54,7 +54,7 @@ func greetInterceptor(ctx context.Context, b []byte, handler inner_service.Handl
 	return rsp,err
 }
 
-func StartServer(s skymesh.Server) {
+func StartServer(s skymesh.MeshServer) {
 	service,err := inner_service.RegisterService(s, svcUrl)
 	if err != nil {
 		log.Errorf("register SMService err:%v.\n", err)

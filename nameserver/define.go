@@ -35,3 +35,8 @@ type TickMsg struct {
 type ServiceHeartbeat struct {
 	addrHandle uint64
 }
+
+type ServiceSyncAttr struct {
+	addrHandle uint64
+	attrs      []byte
+}

@@ -58,8 +58,8 @@ func (c *Conn) loopRead() error {
 		}
 		for {
 			rn, err := c.receiver.OnMessage(c, c.rbuff.Bytes())
-			if err != nil {
-				return err
+			if err != nil { //业务层消息异常不应该引起网络连接断开
+				log.Printf("tcp conn %p on message err:%v\n", c, err)
 			}
 			if rn > 0 {
 				c.rbuff.Next(rn)

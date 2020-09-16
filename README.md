@@ -47,13 +47,9 @@ Api
     //s是skymeshServer外部能力的抽象接口Server的实例
     //Server定义
     /*type Server interface {
-       	Register(serviceUrl string, service Service) error                              //注册服务
+       	Register(serviceUrl string, service AppService) (MeshService, error)            //注册服务
        	UnRegister(serviceUrl string) error                                             //注销服务
-       	GetNameResolver(serviceName string) NameResolver                                //返回serviceName的名字解析器
-       	Send(srcServiceUrl string, dstHandle uint64, b []byte) error                    //定向发送, 适用有状态服务
-       	SendBySvcUrl(srcServiceUrl string, dstServiceUrl string, b []byte) error        //根据服务url,定向发送
-       	SendBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error      //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
-       	BroadcastBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName 广播给所有对应的服务
+       	GetNameRouter(serviceName string) NameRouter                                    //返回serviceName的服务路由
        	Serve() error                                                                   //阻塞循环
        	GracefulStop()                                                                  //优雅退出
       }*/

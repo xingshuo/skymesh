@@ -16,19 +16,8 @@ import (
 	"github.com/xingshuo/skymesh/log"
 )
 
-type Server interface {
-	Register(serviceUrl string, service Service) error                              //注册服务
-	UnRegister(serviceUrl string) error                                             //注销服务
-	GetNameResolver(serviceName string) NameResolver                                //返回serviceName的名字解析器
-	Send(srcServiceUrl string, dstHandle uint64, b []byte) error                    //定向发送, 适用有状态服务
-	SendBySvcUrl(srcServiceUrl string, dstServiceUrl string, b []byte) error        //根据服务url,定向发送
-	SendBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error      //根据ServiceName的所有链路质量,选择最佳发送,适用无状态
-	BroadcastBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error //根据ServiceName 广播给所有对应的服务
-	Serve() error                                                                   //阻塞循环
-	GracefulStop()                                                                  //优雅退出
-}
 
-func NewServer(conf string, appID string, doServe bool) (Server, error) { //每个进程每个appid只启动一个实例
+func NewServer(conf string, appID string, doServe bool) (MeshServer, error) { //每个进程每个appid只启动一个实例
 	s := &skymeshServer{}
 	err := s.Init(conf, appID, doServe)
 	if err != nil {
@@ -37,17 +26,17 @@ func NewServer(conf string, appID string, doServe bool) (Server, error) { //每�
 	return s, err
 }
 
+//GraceServer可以是skymeshServer, grpcServer...
 type GraceServer interface {
 	GracefulStop()
 }
 
 //接收指定信号，优雅退出接口
-//GraceServer可以是skymeshServer, grpcServer...
 func WaitSignalToStop(s GraceServer, sigs ...os.Signal) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, sigs...)
 	sig := <-c
-	log.Infof("Server(%v) exit with signal(%d)\n", syscall.Getpid(), sig)
+	log.Infof("MeshServer(%v) exit with signal(%d)\n", syscall.Getpid(), sig)
 	s.GracefulStop()
 }
 
@@ -64,7 +53,7 @@ type skymeshServer struct {
 	serviceWG  sync.WaitGroup
 	state 	   int32
 
-	urlServices       map[string]*skymeshService            //key is Service Url
+	urlServices       map[string]*skymeshService            //key is AppService Url
 	nameGroupServices map[string]map[uint64]*skymeshService //first floor key is ServiceName(不含实例id)
 	handleServices    map[uint64]*skymeshService
 	resolvers         map[string]*skymeshResolver //skymesh的名字解析列表
@@ -140,23 +129,23 @@ func (s *skymeshServer) loadConfig(conf string) error {
 }
 
 //serviceUrl format : [skymesh://]game_id.env_name.svc_name/inst_id
-func (s *skymeshServer) Register(serviceUrl string, service Service) error {
+func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshService, error) {
 	serviceUrl = StripSkymeshUrlPrefix(serviceUrl)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	log.Infof("register service: %s\n", serviceUrl)
-	if _, ok := s.urlServices[serviceUrl]; ok {
-		return errors.New("skymesh register service repeated")
+	if svc, ok := s.urlServices[serviceUrl]; ok {
+		return svc, errors.New("skymesh register service repeated")
 	}
 	addr, err := SkymeshUrl2Addr(serviceUrl)
 	if err != nil {
-		return errors.New("service url format err, should be skymesh://service_name/service_id")
+		return nil, errors.New("service url format err, should be skymesh://service_name/service_id")
 	}
 	addr.AddrHandle = MakeServiceHandle(s.cfg.MeshserverAddress, addr.ServiceName, addr.ServiceId)
 	log.Infof("%s bind handle %d.\n", serviceUrl, addr.AddrHandle)
 	err = s.sidecar.RegisterServiceToNameServer(addr, true)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	svc := &skymeshService{
@@ -180,7 +169,7 @@ func (s *skymeshServer) Register(serviceUrl string, service Service) error {
 		log.Infof("service %s quit.\n", svc.addr)
 		s.serviceWG.Done()
 	}()
-	return nil
+	return svc, nil
 }
 
 //serviceUrl format : [skymesh://]game_id.env_name.svc_name/inst_id
@@ -243,6 +232,16 @@ func (s *skymeshServer) Serve() error {
 					svc.OnRegister(result)
 				} else {
 					log.Errorf("event not exist handle %d.\n", dh)
+				}
+			case *SyncAttrEvent:
+				e := event.(*SyncAttrEvent)
+				s.sidecar.notifyServiceSyncAttr(e)
+				rsname := e.serviceAddr.ServiceName
+				s.mu.Lock()
+				resolver := s.resolvers[rsname]
+				s.mu.Unlock()
+				if resolver != nil {
+					resolver.notifyInstsAttrs(e.serviceAddr.ServiceId, e.attributes)
 				}
 			}
 		case msg := <-s.recvQueue: //这里要优先处理消息??
@@ -336,18 +335,12 @@ func (s *skymeshServer) GetBestQualityService(svcName string) *Addr { //优先�
 	return nil
 }
 
-func (s *skymeshServer) BroadcastBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error {
-	s.mu.Lock()
-	srcSvc := s.urlServices[srcServiceUrl]
-	s.mu.Unlock()
-	if srcSvc == nil {
-		return fmt.Errorf("BroadcastBySvcName not find service %s", srcServiceUrl)
-	}
+func (s *skymeshServer) broadcastBySvcName(srcAddr *Addr, dstServiceName string, b []byte) error {
 	//本地广播
 	s.mu.Lock()
 	for lh,dstSvc := range s.nameGroupServices[dstServiceName] {
 		msg := &DataMessage{
-			srcAddr:   srcSvc.addr,
+			srcAddr:   srcAddr,
 			dstHandle: lh,
 			data:      b,
 		}
@@ -355,50 +348,24 @@ func (s *skymeshServer) BroadcastBySvcName(srcServiceUrl string, dstServiceName 
 	}
 	s.mu.Unlock()
 	//远程广播
-	s.sidecar.SendAllRemote(srcSvc.addr, dstServiceName, b)
+	s.sidecar.SendAllRemote(srcAddr, dstServiceName, b)
 	return nil
 }
 
-func (s *skymeshServer) SendBySvcName(srcServiceUrl string, dstServiceName string, b []byte) error {
-	s.mu.Lock()
-	srcSvc := s.urlServices[srcServiceUrl]
-	s.mu.Unlock()
-	if srcSvc == nil {
-		return fmt.Errorf("SendBySvcName not find service %s", srcServiceUrl)
-	}
-	return s.sendByRouter(srcSvc.addr, dstServiceName, b)
-}
-
-func (s *skymeshServer) Send(srcServiceUrl string, dstHandle uint64, b []byte) error {
-	s.mu.Lock()
-	srcSvc := s.urlServices[srcServiceUrl]
-	s.mu.Unlock()
-	if srcSvc == nil {
-		return fmt.Errorf("Send not find service %s", srcServiceUrl)
-	}
-	return s.send(srcSvc.addr, dstHandle, b)
-}
-
-func (s *skymeshServer) SendBySvcUrl(srcServiceUrl string, dstServiceUrl string, b []byte) error {
-	s.mu.Lock()
-	srcSvc := s.urlServices[srcServiceUrl]
-	s.mu.Unlock()
-	if srcSvc == nil {
-		return fmt.Errorf("SendBySvcUrl not find service %s", srcServiceUrl)
-	}
+func (s *skymeshServer) sendBySvcUrl(srcAddr *Addr, dstServiceUrl string, b []byte) error {
 	s.mu.Lock()
 	dstSvc := s.urlServices[dstServiceUrl]
 	s.mu.Unlock()
 	if dstSvc != nil {
 		msg := &DataMessage{
-			srcAddr:   srcSvc.addr,
+			srcAddr:   srcAddr,
 			dstHandle: dstSvc.addr.AddrHandle,
 			data:      b,
 		}
 		dstSvc.PushMessage(msg)
 		return nil
 	}
-	return s.sidecar.SendRemoteBySvcUrl(srcSvc.addr, dstServiceUrl, b)
+	return s.sidecar.SendRemoteBySvcUrl(srcAddr, dstServiceUrl, b)
 }
 
 func (s *skymeshServer) sendByRouter(srcAddr *Addr, serviceName string, b []byte) error { //针对无状态服务
@@ -406,10 +373,10 @@ func (s *skymeshServer) sendByRouter(srcAddr *Addr, serviceName string, b []byte
 	if rmAddr == nil {
 		return fmt.Errorf("not find service %s router", serviceName)
 	}
-	return s.send(srcAddr, rmAddr.AddrHandle, b)
+	return s.sendByHandle(srcAddr, rmAddr.AddrHandle, b)
 }
 
-func (s *skymeshServer) send(srcAddr *Addr, dstHandle uint64, b []byte) error {
+func (s *skymeshServer) sendByHandle(srcAddr *Addr, dstHandle uint64, b []byte) error {
 	s.mu.Lock()
 	dstSvc := s.handleServices[dstHandle]
 	s.mu.Unlock()
@@ -425,7 +392,7 @@ func (s *skymeshServer) send(srcAddr *Addr, dstHandle uint64, b []byte) error {
 	return s.sidecar.SendRemote(srcAddr, dstHandle, b)
 }
 
-func (s *skymeshServer) GetNameResolver(serviceName string) NameResolver {
+func (s *skymeshServer) GetNameRouter(serviceName string) NameRouter {
 	s.mu.Lock()
 	ns := s.resolvers[serviceName]
 	if ns == nil {
@@ -433,6 +400,7 @@ func (s *skymeshServer) GetNameResolver(serviceName string) NameResolver {
 			svcName:   serviceName,
 			instAddrs: make(map[uint64]*Addr),
 			watchers:  make(map[NameWatcher]bool),
+			instAttrs: make(map[uint64]ServiceAttr),
 		}
 		s.resolvers[serviceName] = ns
 	}
@@ -440,6 +408,19 @@ func (s *skymeshServer) GetNameResolver(serviceName string) NameResolver {
 	handles, insts := s.getServiceInsts(serviceName)
 	for idx, instID := range insts {
 		ns.AddInstsAddr(instID, &Addr{ServiceName: serviceName, ServiceId: instID, AddrHandle: handles[idx]})
+		h := handles[idx]
+		s.mu.Lock()
+		svc := s.handleServices[h]
+		s.mu.Unlock()
+		if svc != nil { //local service
+			ns.AddInstsAttr(instID, svc.GetAttribute())
+		} else {
+			rmtSvc := s.sidecar.getRemoteService(h)
+			if rmtSvc != nil {
+				ns.AddInstsAttr(instID, rmtSvc.GetAttribute())
+			}
+		}
+
 	}
 	return ns
 }
@@ -468,4 +449,14 @@ func (s *skymeshServer) getAllServices() map[uint64]*skymeshService {
 		services[handle] = svc
 	}
 	return services
+}
+
+func (s *skymeshServer) setAttribute(srcAddr *Addr, attrs ServiceAttr) error {
+	s.mu.Lock()
+	nr := s.resolvers[srcAddr.ServiceName]
+	s.mu.Unlock()
+	if nr != nil {
+		nr.notifyInstsAttrs(srcAddr.ServiceId, attrs)
+	}
+	return s.sidecar.SyncServiceAttrToNameServer(srcAddr, attrs)
 }

@@ -30,7 +30,7 @@ type SMService interface {
 
 
 // 注册SM服务
-func RegisterService(server skymesh.Server, serviceUrl string) (SMService, error) {
+func RegisterService(server skymesh.MeshServer, serviceUrl string) (SMService, error) {
 	s := &SMServiceImpl{
 		serviceUrl:   serviceUrl,
 		server:       server,
@@ -83,7 +83,8 @@ func (h *chainMethodHandler) onMethod(ctx context.Context, msg []byte) (interfac
 
 type SMServiceImpl struct {
 	serviceUrl         string
-	server             skymesh.Server
+	server             skymesh.MeshServer
+	transport		   skymesh.MeshService
 	regResult          chan error		// 注册完成时的通知,将skymeshService的异步注册转为同步
 	seq                uint64
 	methods            map[string]methodHandler
@@ -95,10 +96,11 @@ type SMServiceImpl struct {
 
 func (s *SMServiceImpl) init() error {
 	s.rpcFramework.Init()
-	err := s.server.Register(s.serviceUrl, s)
+	meshSvc,err := s.server.Register(s.serviceUrl, s)
 	if err != nil {
 		return err
 	}
+	s.transport = meshSvc
 	// 同步等待注册完成的skymesh通知
 	err = <-s.regResult
 	return err
@@ -109,7 +111,7 @@ func (s *SMServiceImpl) close() error {
 	return s.server.UnRegister(s.serviceUrl)
 }
 
-//Server Method
+//MeshServer Method
 func (s *SMServiceImpl) RegisterFunc(methodName string, handler HandlerFunc) error {
 	s.methods[methodName] = &chainMethodHandler{handler: handler, interceptors: s.serverInterceptors}
 	return nil
@@ -147,7 +149,7 @@ func (s *SMServiceImpl) rawSend(ctx context.Context, targetSvcUrl string, msgTyp
 	}
 	n := copy(s.packBuffer[packLen:], msgBody)
 	packLen = packLen + uintptr(n)
-	return s.server.SendBySvcUrl(s.serviceUrl, targetSvcUrl, s.packBuffer[:packLen])
+	return s.transport.SendBySvcUrl(targetSvcUrl, s.packBuffer[:packLen])
 }
 
 // 客户端能力实现
@@ -188,8 +190,8 @@ func (s *SMServiceImpl) ApplyClientInterceptors(interceptors ...SMInterceptor) {
 	}
 }
 
-// impl of skymesh Service
-func (s *SMServiceImpl) OnRegister(trans skymesh.Transport, result int32) {
+// impl of skymesh AppService
+func (s *SMServiceImpl) OnRegister(trans skymesh.MeshService, result int32) {
 	if result == 0 {
 		s.regResult <- nil
 	} else {
@@ -197,11 +199,11 @@ func (s *SMServiceImpl) OnRegister(trans skymesh.Transport, result int32) {
 	}
 }
 
-// impl of skymesh Service
+// impl of skymesh AppService
 func (s *SMServiceImpl) OnUnRegister() {
 }
 
-// impl of skymesh Service
+// impl of skymesh AppService
 func (s *SMServiceImpl) OnMessage(rmtAddr *skymesh.Addr, data []byte) {
 	head := &SMRpcHead{}
 	head.Init()

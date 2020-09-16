@@ -1,6 +1,7 @@
 package skymesh
 
 import (
+	"encoding/json"
 	"github.com/golang/protobuf/proto"
 	gonet "github.com/xingshuo/skymesh/common/network"
 	"github.com/xingshuo/skymesh/log"
@@ -118,6 +119,30 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 				log.Info("deliver online event msg succeed.\n")
 			case <-ticker.C:
 				log.Errorf("deliver online event msg block %ds.\n", deadline)
+			}
+			return
+		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_SYNCATTR {
+			log.Info("recv sync attr msg.\n")
+			rsp := ssmsg.GetNotifyServiceAttr()
+			var attrs ServiceAttr
+			err = json.Unmarshal(rsp.Data, &attrs)
+			if err != nil {
+				log.Errorf("Unmarshal sync attr err:%v.\n", err)
+				return
+			}
+			msg := &SyncAttrEvent{
+				serviceAddr: &Addr{
+					ServiceName: rsp.ServiceInfo.ServiceName,
+					ServiceId:   rsp.ServiceInfo.ServiceId,
+					AddrHandle:  rsp.ServiceInfo.AddrHandle,
+				},
+				attributes:  attrs,
+			}
+			select {
+			case ndr.server.eventQueue <- msg:
+			default:
+				log.Error("deliver sync attr event msg block.\n")
 			}
 			return
 		}

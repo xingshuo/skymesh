@@ -15,14 +15,14 @@ type skymeshDialer struct { //only consider service grpc client
 	connMgr *ConnMgr
 
 	regResult chan int32
-	trans     skymesh.Transport
-	server    skymesh.Server
-	resolvers map[string]skymesh.NameResolver
+	trans     skymesh.MeshService
+	server    skymesh.MeshServer
+	resolvers map[string]skymesh.NameRouter
 }
 
-func newSkymeshDialer(serviceName string, proto VirConnProto, s skymesh.Server) (*skymeshDialer, error) {
+func newSkymeshDialer(serviceName string, proto VirConnProto, s skymesh.MeshServer) (*skymeshDialer, error) {
 	d := &skymeshDialer{regResult: make(chan int32)}
-	err := s.Register(serviceName, d)
+	_, err := s.Register(serviceName, d)
 	if err != nil {
 		return nil, err
 	}
@@ -39,17 +39,17 @@ func newSkymeshDialer(serviceName string, proto VirConnProto, s skymesh.Server) 
 	d.server = s
 	d.virConnProto = proto
 	d.connMgr = NewConnMgr()
-	d.resolvers = make(map[string]skymesh.NameResolver)
+	d.resolvers = make(map[string]skymesh.NameRouter)
 	return d, nil
 }
 
-// skymesh Service interface
-func (d *skymeshDialer) OnRegister(trans skymesh.Transport, result int32) {
+// skymesh AppService interface
+func (d *skymeshDialer) OnRegister(trans skymesh.MeshService, result int32) {
 	d.trans = trans
 	d.regResult <- result
 }
 
-// skymesh Service interface
+// skymesh AppService interface
 func (d *skymeshDialer) OnUnRegister() {
 	d.connMgr.Close()
 }
@@ -57,11 +57,11 @@ func (d *skymeshDialer) OnUnRegister() {
 func (d *skymeshDialer) resetConn(rmtAddr *skymesh.Addr, connID uint64, err error) {
 	log.Errorf("Reset remote[%v] conn[%v] reason[%v]\n", rmtAddr.String(), connID, err)
 	if packets, err := d.virConnProto.PackPacket(KVConnCmdClose, connID, nil, nil); err == nil {
-		_ = d.trans.Send(rmtAddr.AddrHandle, packets)
+		_ = d.trans.SendByHandle(rmtAddr.AddrHandle, packets)
 	}
 }
 
-// skymesh Service interface
+// skymesh AppService interface
 func (d *skymeshDialer) OnMessage(rmtAddr *skymesh.Addr, packet []byte) {
 	cmd, connID, msg, ext, err := d.virConnProto.UnpackPacket(packet)
 	if err != nil {
@@ -105,14 +105,14 @@ func (d *skymeshDialer) dial(rmtAddr *skymesh.Addr) (*SkymeshConn, error) {
 }
 
 //nolint
-func (d *skymeshDialer) getNameResolver(target string) (skymesh.NameResolver, error) {
+func (d *skymeshDialer) getNameResolver(target string) (skymesh.NameRouter, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	nr, ok := d.resolvers[target]
 	if ok {
 		return nr, nil
 	}
-	nr = d.server.GetNameResolver(target)
+	nr = d.server.GetNameRouter(target)
 	d.resolvers[target] = nr
 	return nr, nil
 }
@@ -130,13 +130,13 @@ func (d *skymeshDialer) newNameWatcher(target string) *dialNameWatcher {
 
 
 type dialNameWatcher struct { //one name resolver instance correspond one
-	nameResolver skymesh.NameResolver
+	nameResolver skymesh.NameRouter
 	target       string //watch service name
 	waiting      chan struct{}
 	quit         chan struct{}
 }
 
-func (nw *dialNameWatcher) init(nr skymesh.NameResolver, target string) {
+func (nw *dialNameWatcher) init(nr skymesh.NameRouter, target string) {
 	nw.target = target
 	nw.waiting = make(chan struct{}, 1)
 	nw.quit = make(chan struct{})
@@ -144,7 +144,7 @@ func (nw *dialNameWatcher) init(nr skymesh.NameResolver, target string) {
 }
 
 func (nw *dialNameWatcher) OnInstOnline(addr *skymesh.Addr) {
-	log.Infof("Service(%s) inst(%v) online\n", nw.target, addr.ServiceId)
+	log.Infof("AppService(%s) inst(%v) online\n", nw.target, addr.ServiceId)
 	select {
 	case nw.waiting <- struct{}{}:
 	default:
@@ -153,12 +153,16 @@ func (nw *dialNameWatcher) OnInstOnline(addr *skymesh.Addr) {
 }
 
 func (nw *dialNameWatcher) OnInstOffline(addr *skymesh.Addr) {
-	log.Infof("Service(%s) inst(%v) offline\n", nw.target, addr.ServiceId)
+	log.Infof("AppService(%s) inst(%v) offline\n", nw.target, addr.ServiceId)
 	select {
 	case nw.waiting <- struct{}{}:
 	default:
 		log.Infof("notify inst %v offline failed\n", addr)
 	}
+}
+
+func (nw *dialNameWatcher) OnInstSyncAttr(addr *skymesh.Addr, attrs skymesh.ServiceAttr) {
+
 }
 
 func (nw *dialNameWatcher) wait(waitMs int) error {

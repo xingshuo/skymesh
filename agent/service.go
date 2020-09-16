@@ -3,6 +3,7 @@ package skymesh
 import (
 	smsync "github.com/xingshuo/skymesh/common/sync"
 	"github.com/xingshuo/skymesh/log"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,8 @@ type remoteService struct { //其他skymeshServer服务实例的简要信息
 	rttMetrics     []int64 //近n次往返延迟采样
 	curPingSeq     uint64  //当前Ping包Seq编号
 	lastAckPingSeq uint64  //上一次收到回复的Ping包编号
+	mu             sync.RWMutex
+	Attributes     ServiceAttr //远端服务属性同步缓存
 }
 
 func (rs *remoteService) onSendPing() {
@@ -57,37 +60,83 @@ func (rs *remoteService) CalAverageRTT() int64 { //毫秒
 	return sum/int64(len(rs.rttMetrics))
 }
 
-type Transport interface {
-	SendByRouter(serviceName string, msg []byte) error //发送无状态服务消息,通过无状态路由策略选择发送目标服务
-	Send(dstHandle uint64, msg []byte) error           //向指定服务发送消息
-	GetLocalAddr() *Addr
+//这里可能需要DeepCopy
+func (rs *remoteService) SetAttribute(attrs ServiceAttr) {
+	copy := make(ServiceAttr)
+	for k,v := range attrs {
+		copy[k] = v
+	}
+	rs.mu.Lock()
+	rs.Attributes = copy
+	rs.mu.Unlock()
 }
 
-type Service interface {
-	OnRegister(trans Transport, result int32)
-	OnUnRegister()
-	OnMessage(rmtAddr *Addr, msg []byte)
+//这里可能需要DeepCopy
+func (rs *remoteService) GetAttribute() ServiceAttr {
+	rs.mu.RLock()
+	defer rs.mu.RUnlock()
+	copy := make(ServiceAttr)
+	for k,v := range rs.Attributes {
+		copy[k] = v
+	}
+	return copy
 }
 
 type skymeshService struct {
-	server   *skymeshServer
-	addr     *Addr
-	service  Service
-	quit     *smsync.Event
-	done     *smsync.Event
-	msgQueue chan Message
+	server     *skymeshServer
+	addr       *Addr
+	service    AppService
+	quit       *smsync.Event
+	done       *smsync.Event
+	msgQueue   chan Message
+	mu         sync.RWMutex
+	attrs      ServiceAttr
 }
 
-func (s *skymeshService) SendByRouter(serviceName string, msg []byte) error {
-	return s.server.sendByRouter(s.addr, serviceName, msg)
+func (s *skymeshService) SendBySvcNameAndInstID(serviceName string, instID uint64, msg []byte) error {
+	if instID == 0 { //选择最佳链路
+		return s.server.sendByRouter(s.addr, serviceName, msg)
+	}
+	return s.server.sendBySvcUrl(s.addr, MakeSkymeshUrl(serviceName, instID), msg)
 }
 
-func (s *skymeshService) Send(dstHandle uint64, msg []byte) error {
-	return s.server.send(s.addr, dstHandle, msg)
+func (s *skymeshService) SendByHandle(dstHandle uint64, msg []byte) error {
+	return s.server.sendByHandle(s.addr, dstHandle, msg)
+}
+
+func (s *skymeshService) SendBySvcUrl(dstServiceUrl string, msg []byte) error {
+	return s.server.sendBySvcUrl(s.addr, dstServiceUrl, msg)
+}
+
+func (s *skymeshService) BroadcastBySvcName(dstServiceName string, msg []byte) error {
+	return s.server.broadcastBySvcName(s.addr, dstServiceName, msg)
 }
 
 func (s *skymeshService) GetLocalAddr() *Addr {
 	return s.addr
+}
+
+//这里可能需要DeepCopy
+func (s *skymeshService) SetAttribute(attrs ServiceAttr) error {
+	copy := make(ServiceAttr)
+	for k,v := range attrs {
+		copy[k] = v
+	}
+	s.mu.Lock()
+	s.attrs = copy
+	s.mu.Unlock()
+	return s.server.setAttribute(s.addr, copy)
+}
+
+//这里可能需要DeepCopy
+func (s *skymeshService) GetAttribute() ServiceAttr {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	copy := make(ServiceAttr)
+	for k,v := range s.attrs {
+		copy[k] = v
+	}
+	return copy
 }
 
 func (s *skymeshService) OnRegister(result int32) {

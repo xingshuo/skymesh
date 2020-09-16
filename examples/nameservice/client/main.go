@@ -3,8 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -21,10 +19,9 @@ var (
 )
 
 type Client struct {
-	server skymesh.Server
 }
 
-func (c *Client) OnRegister(trans skymesh.Transport, result int32) {
+func (c *Client) OnRegister(trans skymesh.MeshService, result int32) {
 	log.Infof("greeter client register status %d.\n", result)
 }
 
@@ -37,12 +34,12 @@ func (c *Client) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
 }
 
 type serverWatcher struct {
-	server skymesh.Server
+	transport skymesh.MeshService
 }
 
 func (w *serverWatcher) OnInstOnline(addr *skymesh.Addr) {
 	log.Infof("service %s inst online.", addr)
-	err := w.server.Send(svcUrl, addr.AddrHandle, []byte(greetMessage))
+	err := w.transport.SendByHandle(addr.AddrHandle, []byte(greetMessage))
 	if err != nil {
 		log.Errorf("client send greet msg err:%v.\n", err)
 	} else {
@@ -53,15 +50,8 @@ func (w *serverWatcher) OnInstOffline(addr *skymesh.Addr) {
 	log.Infof("service %s inst offline.", addr)
 }
 
-func handleSignal(s skymesh.Server) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c)
-	for sig := range c {
-		fmt.Printf("recv sig %d\n", sig)
-		if sig == syscall.SIGINT || sig == syscall.SIGTERM || sig == syscall.SIGQUIT {
-			s.GracefulStop()
-		}
-	}
+func (w *serverWatcher) OnInstSyncAttr(addr *skymesh.Addr, attrs skymesh.ServiceAttr) {
+
 }
 
 func main() {
@@ -72,18 +62,18 @@ func main() {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go handleSignal(s)
-	c := &Client{server: s}
-	err = s.Register(svcUrl, c)
+	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	c := &Client{}
+	meshSvc,err := s.Register(svcUrl, c)
 	if err != nil {
 		log.Errorf("register %s err:%v\n", svcUrl, err)
 		return
 	}
-	ns := c.server.GetNameResolver(watchUrl)
-	ns.Watch(&serverWatcher{s})
+	ns := s.GetNameRouter(watchUrl)
+	ns.Watch(&serverWatcher{meshSvc})
 	//向已经上线的Server端服务发送greetMessage
 	for _, addr := range ns.GetInstsAddr() {
-		s.Send(svcUrl, addr.AddrHandle, []byte(greetMessage))
+		meshSvc.SendByHandle(addr.AddrHandle, []byte(greetMessage))
 	}
 
 	ticker := time.NewTicker(5 * time.Second)
@@ -91,9 +81,9 @@ func main() {
 		cnt := 1
 		for range ticker.C {
 			if cnt % 4 == 0 {
-				s.BroadcastBySvcName(svcUrl, watchUrl, []byte("broadcast by name"))
+				meshSvc.BroadcastBySvcName(watchUrl, []byte("broadcast by name"))
 			} else {
-				s.SendBySvcName(svcUrl, watchUrl, []byte("notify one by name"))
+				meshSvc.SendBySvcNameAndInstID(watchUrl, 0, []byte("notify one by name"))
 			}
 			cnt++
 		}

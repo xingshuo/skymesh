@@ -1,6 +1,8 @@
 package skymesh
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const (
 	AVERAGE_RTT_SAMPLING_NUM = 5 //计算平均延迟的采样次数
@@ -11,6 +13,8 @@ const (
 	kSkymeshServerRunning
 	kSkymeshServerStop
 )
+
+type ServiceAttr map[string]interface{}
 
 type Config struct {
 	NameserverAddress string //名字服务ip:port
@@ -59,6 +63,10 @@ func (addr *Addr) String() string {
 
 func (addr *Addr) Network() string {
 	return skymeshSchema
+}
+
+func (addr *Addr) ServiceUrl() string {
+	return fmt.Sprintf("%s/%d", addr.ServiceName, addr.ServiceId)
 }
 
 const (
@@ -135,4 +143,9 @@ type OnlineEvent struct {
 type RegServiceEvent struct {
 	dstHandle uint64
 	result    int32
+}
+
+type SyncAttrEvent struct {
+	serviceAddr *Addr
+	attributes  ServiceAttr
 }

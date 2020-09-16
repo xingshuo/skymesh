@@ -156,3 +156,7 @@ func ParseSkymeshUrl(url string) (appID string, envName string, svcName string, 
 	svcName = s[2]
 	return
 }
+
+func MakeSkymeshUrl(fullSvcName string, instID uint64) string {
+	return fmt.Sprintf("%s/%v",fullSvcName, instID)
+}

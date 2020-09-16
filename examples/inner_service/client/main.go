@@ -26,7 +26,7 @@ var (
 	CallName     = "Bob"
 )
 
-func handleSignal(s skymesh.Server) {
+func handleSignal(s skymesh.MeshServer) {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c)
 	for sig := range c {

@@ -48,6 +48,10 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 			lr.OnNotifiedServiceHeartbeat(&ssmsg)
 			return
 		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_NAMESERVER_SYNCATTR {
+			lr.OnServiceSyncAttr(&ssmsg)
+			return
+		}
 	}
 	return
 }
@@ -147,5 +151,18 @@ func (lr *lisConnReceiver) OnNotifiedServiceHeartbeat(ssmsg *smproto.SSMsg) {
 	case lr.server.msg_queue <- msg:
 	default:
 		log.Error("deliver service heartbeat msg block.\n")
+	}
+}
+
+func (lr *lisConnReceiver) OnServiceSyncAttr(ssmsg *smproto.SSMsg) {
+	notify := ssmsg.GetNotifyNameserverAttr()
+	msg := &ServiceSyncAttr {
+		addrHandle: notify.SrcHandle,
+		attrs: notify.Data,
+	}
+	select {
+	case lr.server.msg_queue <- msg:
+	default:
+		log.Error("deliver service sync attr msg block.\n")
 	}
 }

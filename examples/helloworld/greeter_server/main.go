@@ -5,8 +5,6 @@ import (
 	"fmt"
 	skymesh "github.com/xingshuo/skymesh/agent"
 	"github.com/xingshuo/skymesh/log"
-	"os"
-	"os/signal"
 	"syscall"
 )
 
@@ -18,10 +16,10 @@ var (
 )
 
 type greeterServer struct {
-	server skymesh.Server
+	transport skymesh.MeshService
 }
 
-func (s *greeterServer) OnRegister(trans skymesh.Transport, result int32) {
+func (s *greeterServer) OnRegister(trans skymesh.MeshService, result int32) {
 	log.Info("greeter server register ok.\n")
 }
 
@@ -31,17 +29,8 @@ func (s *greeterServer) OnUnRegister() {
 
 func (s *greeterServer) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
 	log.Infof("recv client msg %s from %s.\n", string(msg),rmtAddr)
-	s.server.Send(svcUrl, rmtAddr.AddrHandle, []byte(greetMessage))
-}
-
-func handleSignal(s skymesh.Server) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c)
-	for sig := range c {
-		fmt.Printf("recv sig %d\n", sig)
-		if sig == syscall.SIGINT || sig == syscall.SIGTERM || sig == syscall.SIGQUIT {
-			s.GracefulStop()
-		}
+	if s.transport != nil {
+		s.transport.SendByHandle(rmtAddr.AddrHandle, []byte(greetMessage))
 	}
 }
 
@@ -53,13 +42,14 @@ func main() {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go handleSignal(s)
-	gs := &greeterServer{server:s}
-	err = s.Register(svcUrl, gs)
+	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	gs := &greeterServer{}
+	meshSvc,err := s.Register(svcUrl, gs)
 	if err != nil {
 		log.Errorf("register %s err:%v\n", svcUrl,err)
 		return
 	}
+	gs.transport = meshSvc
 	log.Info("ready to serve.\n")
 	if err = s.Serve(); err != nil {
 		log.Errorf("serve err:%v.\n", err)

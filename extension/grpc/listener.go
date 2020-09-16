@@ -17,12 +17,12 @@ type skymeshListener struct {
 	quit      chan struct{}
 
 	regResult chan error // 注册完成时的通知，将skymesh的异步注册转为同步注册
-	trans     skymesh.Transport
-	server    skymesh.Server
-	resolvers map[string]skymesh.NameResolver
+	trans     skymesh.MeshService
+	server    skymesh.MeshServer
+	resolvers map[string]skymesh.NameRouter
 }
 
-func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.Server) (*skymeshListener, error) {
+func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.MeshServer) (*skymeshListener, error) {
 	l := &skymeshListener{
 		virConnProto: proto,
 		connMgr:      nil,
@@ -30,9 +30,9 @@ func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.Server
 		quit:         make(chan struct{}),
 		regResult:    make(chan error),
 		trans:        nil,
-		resolvers:    make(map[string]skymesh.NameResolver),
+		resolvers:    make(map[string]skymesh.NameRouter),
 	}
-	err := s.Register(serviceName, l)
+	_, err := s.Register(serviceName, l)
 	if err != nil {
 		return nil, err
 	}
@@ -52,8 +52,8 @@ func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.Server
 	return l, nil
 }
 
-// skymesh Service interface
-func (l *skymeshListener) OnRegister(trans skymesh.Transport, result int32) {
+// skymesh AppService interface
+func (l *skymeshListener) OnRegister(trans skymesh.MeshService, result int32) {
 	l.trans = trans
 	if result == 0 {
 		l.regResult <- nil
@@ -62,7 +62,7 @@ func (l *skymeshListener) OnRegister(trans skymesh.Transport, result int32) {
 	}
 }
 
-// skymesh Service interface
+// skymesh AppService interface
 func (l *skymeshListener) OnUnRegister() {
 	l.connMgr.Close()
 }
@@ -70,11 +70,11 @@ func (l *skymeshListener) OnUnRegister() {
 func (l *skymeshListener) resetConn(rmtAddr *skymesh.Addr, connID uint64, err error) {
 	log.Errorf("Reset remote[%v] conn[%v] reason[%v]\n", rmtAddr.String(), connID, err)
 	if packets, err := l.virConnProto.PackPacket(KVConnCmdClose, connID, nil, nil); err == nil {
-		_ = l.trans.Send(rmtAddr.AddrHandle, packets)
+		_ = l.trans.SendByHandle(rmtAddr.AddrHandle, packets)
 	}
 }
 
-// skymesh Service interface
+// skymesh AppService interface
 func (l *skymeshListener) OnMessage(rmtAddr *skymesh.Addr, packet []byte) {
 	cmd, connID, msg, ext, err := l.virConnProto.UnpackPacket(packet)
 	if err != nil {
@@ -85,7 +85,7 @@ func (l *skymeshListener) OnMessage(rmtAddr *skymesh.Addr, packet []byte) {
 		// 尝试将主动链接的服务加入到skymesh的名字监听中，保证可以收到实例的下线通知来处理链接的销毁
 		_, ok := l.resolvers[rmtAddr.ServiceName]
 		if !ok {
-			ns := l.server.GetNameResolver(rmtAddr.ServiceName)
+			ns := l.server.GetNameRouter(rmtAddr.ServiceName)
 			l.resolvers[rmtAddr.ServiceName] = ns
 			ns.Watch(l)
 		}
@@ -131,6 +131,11 @@ func (l *skymeshListener) OnInstOnline(_ *skymesh.Addr) {
 // skymesh NameWatcher interface
 func (l *skymeshListener) OnInstOffline(addr *skymesh.Addr) {
 	l.connMgr.DelConns(addr.AddrHandle)
+}
+
+// skymesh NameWatcher interface
+func (l *skymeshListener) OnInstSyncAttr(addr *skymesh.Addr, attrs skymesh.ServiceAttr) {
+
 }
 
 // net Listener interface

@@ -11,7 +11,7 @@ var (
 	adaptor = &grpcAdaptor{
 		dia : make(map[string]*skymeshDialer),
 		proto : &VirConnProtoDefault{},
-		servers : make(map[string]skymesh.Server),
+		servers : make(map[string]skymesh.MeshServer),
 	}
 )
 
@@ -19,7 +19,7 @@ type grpcAdaptor struct {
 	mu  sync.Mutex
 	dia map[string]*skymeshDialer //as client, key:localServiceUrl ,usually only one dialer
 	proto       VirConnProto
-	servers     map[string]skymesh.Server // {appID:Server}
+	servers     map[string]skymesh.MeshServer // {appID:MeshServer}
 }
 
 func (ad *grpcAdaptor) register(conf string, appID string) error {
@@ -45,7 +45,7 @@ func (ad *grpcAdaptor) release() {
 	}
 	ad.mu.Lock()
 	ad.dia = make(map[string]*skymeshDialer) //只创建,不销毁,交给Server统一释放
-	ad.servers = make(map[string]skymesh.Server)
+	ad.servers = make(map[string]skymesh.MeshServer)
 	ad.mu.Unlock()
 }
 

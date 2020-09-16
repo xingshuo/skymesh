@@ -13,7 +13,7 @@ import (
 // impl of net.Conn
 type SkymeshConn struct {
 	connID   uint64
-	trans    skymesh.Transport
+	trans    skymesh.MeshService
 	rmtAddr  skymesh.Addr
 	virProto VirConnProto
 
@@ -49,7 +49,7 @@ func (c *SkymeshConn) Send(vConnCmd VConnCmd, msg []byte) error {
 	if err != nil {
 		return err
 	}
-	err = c.trans.Send(c.rmtAddr.AddrHandle, packets)
+	err = c.trans.SendByHandle(c.rmtAddr.AddrHandle, packets)
 	log.Debugf("conn(%v) send cmd(%v) seq(%v) (%d)bytes err(%v)\n", c, vConnCmd, c.sendSeq, len(msg), err)
 	if err != nil {
 		return err
@@ -133,7 +133,7 @@ func (c *SkymeshConn) String() string {
 
 
 func NewSkymeshConn(connID uint64, rmtAddr *skymesh.Addr,
-	trans skymesh.Transport, virProto VirConnProto) (*SkymeshConn, error) {
+	trans skymesh.MeshService, virProto VirConnProto) (*SkymeshConn, error) {
 	c := &SkymeshConn{
 		connID:     connID,
 		trans:      trans,

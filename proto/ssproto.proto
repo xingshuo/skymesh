@@ -11,7 +11,9 @@ enum SSCmd {
     RSP_REGISTER_SERVICE    = 1003;
     NOTIFY_SERVICE_ONLINE   = 1004;
     REQ_UNREGISTER_SERVICE  = 1005;
-    NOTIFY_NAMESERVER_HEARTBEAT   = 1006;
+    NOTIFY_NAMESERVER_HEARTBEAT  = 1006;
+    NOTIFY_NAMESERVER_SYNCATTR   = 1007;
+    NOTIFY_SERVICE_SYNCATTR      = 1008;
     //agent && agent 2000 ~ 2999
     NOTIFY_SERVICE_MESSAGE  = 2000;
     REQ_PING_SERVICE        = 2001;
@@ -74,6 +76,18 @@ message NotifyNameServerHeartBeat {
     uint64 SrcHandle = 1;
 }
 
+//通过NameServer同步Service属性变更
+message NotifyNameServerSyncAttr {
+    uint64      SrcHandle = 1;
+    bytes       data = 2;
+}
+
+//NameServer同步Agent Service属性变更
+message NotifyServiceSyncAttr {
+    ServiceInfo service_info = 1;
+    bytes       data = 2;
+}
+
 //Agent服务间Ping包
 message ReqServicePing {
     uint64 Seq = 1;
@@ -90,15 +104,17 @@ message SSMsg {
   SSCmd cmd = 1;
   oneof Msg
   {
-      ReqRegisterApp     register_app_req                 = 100;
-      RspRegisterApp     register_app_rsp                 = 101;
-      ReqRegisterService register_service_req             = 102;
-      RspRegisterService register_service_rsp             = 103;
-      NotifyServiceOnline notify_service_online           = 104;
-      ReqUnRegisterService unregister_service_req         = 105;
-      NotifyNameServerHeartBeat notify_nameserver_hb      = 106;
-      NotifyServiceMessage notify_service_message         = 200;
-      ReqServicePing     service_ping_req                 = 201;
-      RspServicePing     service_ping_rsp                 = 202;
+      ReqRegisterApp     register_app_req                  = 100;
+      RspRegisterApp     register_app_rsp                  = 101;
+      ReqRegisterService register_service_req              = 102;
+      RspRegisterService register_service_rsp              = 103;
+      NotifyServiceOnline notify_service_online            = 104;
+      ReqUnRegisterService unregister_service_req          = 105;
+      NotifyNameServerHeartBeat notify_nameserver_hb       = 106;
+      NotifyNameServerSyncAttr  notify_nameserver_attr     = 107;
+      NotifyServiceSyncAttr  notify_service_attr           = 108;
+      NotifyServiceMessage notify_service_message          = 200;
+      ReqServicePing     service_ping_req                  = 201;
+      RspServicePing     service_ping_rsp                  = 202;
   }
 }

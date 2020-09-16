@@ -1,6 +1,7 @@
 package skymesh
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -89,7 +90,7 @@ func (sc *skymeshSidecar) Init() error {
 	}
 	sc.nameserverDialer = d
 
-	//注册app信息到NameServer(要保证先于Register Service)
+	//注册app信息到NameServer(要保证先于Register AppService)
 	msg := &smproto.SSMsg{
 		Cmd: smproto.SSCmd_REQ_REGISTER_APP,
 		Msg: &smproto.SSMsg_RegisterAppReq{
@@ -265,6 +266,16 @@ func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
 	}
 }
 
+func (sc *skymeshSidecar) notifyServiceSyncAttr(e *SyncAttrEvent) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	rh := e.serviceAddr.AddrHandle
+	rmsvc := sc.remoteServices[rh]
+	if rmsvc != nil {
+		rmsvc.SetAttribute(e.attributes)
+	}
+}
+
 func (sc *skymeshSidecar) GetBestQualityService(serviceName string) *remoteService {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -309,6 +320,30 @@ func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, isRegis
 				},
 			},
 		}
+	}
+
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
+	sc.nameserverDialer.Send(b)
+	return nil
+}
+
+func (sc *skymeshSidecar) SyncServiceAttrToNameServer(serviceAddr *Addr, attrs ServiceAttr) error {
+	data,err := json.Marshal(attrs)
+	if err != nil {
+		return err
+	}
+	msg := &smproto.SSMsg{
+		Cmd: smproto.SSCmd_NOTIFY_NAMESERVER_SYNCATTR,
+		Msg: &smproto.SSMsg_NotifyNameserverAttr{
+			NotifyNameserverAttr: &smproto.NotifyNameServerSyncAttr{
+				SrcHandle: serviceAddr.AddrHandle,
+				Data: data,
+			},
+		},
 	}
 
 	b, err := smpack.PackSSMsg(msg)
@@ -387,6 +422,13 @@ func (sc *skymeshSidecar) getRemoteServiceInsts(svcName string) (handles []uint6
 		insts = append(insts, svc.serviceAddr.ServiceId)
 	}
 	return
+}
+
+func (sc *skymeshSidecar) getRemoteService(handle uint64) *remoteService {
+	sc.mu.Lock()
+	rmsvc := sc.remoteServices[handle]
+	sc.mu.Unlock()
+	return rmsvc
 }
 
 func (sc *skymeshSidecar) Release() {

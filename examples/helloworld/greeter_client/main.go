@@ -3,8 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
-	"os/signal"
 	"syscall"
 	"time"
 
@@ -21,10 +19,9 @@ var (
 )
 
 type greeterClient struct {
-	server skymesh.Server
 }
 
-func (c *greeterClient) OnRegister(trans skymesh.Transport, result int32) {
+func (c *greeterClient) OnRegister(trans skymesh.MeshService, result int32) {
 	log.Infof("greeter client register status %d.\n", result)
 }
 
@@ -36,17 +33,6 @@ func (c *greeterClient) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
 	log.Infof("recv server reply %s from %s.\n", string(msg), rmtAddr)
 }
 
-func handleSignal(s skymesh.Server) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c)
-	for sig := range c {
-		fmt.Printf("recv sig %d\n", sig)
-		if sig == syscall.SIGINT || sig == syscall.SIGTERM || sig == syscall.SIGQUIT {
-			s.GracefulStop()
-		}
-	}
-}
-
 func main() {
 	flag.StringVar(&conf, "conf", "config.json", "greeter client config")
 	flag.Parse()
@@ -55,9 +41,9 @@ func main() {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go handleSignal(s)
-	c := &greeterClient{server: s}
-	err = s.Register(svcUrl, c)
+	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	c := &greeterClient{}
+	meshSvc, err := s.Register(svcUrl, c)
 	if err != nil {
 		log.Errorf("register %s err:%v\n", svcUrl, err)
 		return
@@ -65,7 +51,7 @@ func main() {
 	ticker := time.NewTicker(5 * time.Second)
 	go func() {
 		for range ticker.C {
-			err := s.SendBySvcUrl(svcUrl, dstUrl, []byte(greetMessage))
+			err := meshSvc.SendBySvcUrl(dstUrl, []byte(greetMessage))
 			if err != nil {
 				log.Errorf("send message err:%v\n", err)
 			}
