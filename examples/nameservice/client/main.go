@@ -83,7 +83,7 @@ func main() {
 			if cnt % 4 == 0 {
 				meshSvc.BroadcastBySvcName(watchUrl, []byte("broadcast by name"))
 			} else {
-				meshSvc.SendBySvcNameAndInstID(watchUrl, 0, []byte("notify one by name"))
+				meshSvc.SendBySvcNameAndInstID(watchUrl, skymesh.INVALID_ROUTER_ID, []byte("notify one by name"))
 			}
 			cnt++
 		}

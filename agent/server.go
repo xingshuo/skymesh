@@ -56,7 +56,7 @@ type skymeshServer struct {
 	urlServices       map[string]*skymeshService            //key is AppService Url
 	nameGroupServices map[string]map[uint64]*skymeshService //first floor key is ServiceName(不含实例id)
 	handleServices    map[uint64]*skymeshService
-	resolvers         map[string]*skymeshResolver //skymesh的名字解析列表
+	nameRouters       map[string]*skymeshNameRouter //skymesh的名字解析列表
 	sidecar           *skymeshSidecar
 }
 
@@ -77,7 +77,7 @@ func (s *skymeshServer) Init(conf string, appID string, doServe bool) error {
 	s.urlServices = make(map[string]*skymeshService)
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
 	s.handleServices = make(map[uint64]*skymeshService)
-	s.resolvers = make(map[string]*skymeshResolver)
+	s.nameRouters = make(map[string]*skymeshNameRouter)
 	//sidecar 初始化
 	s.sidecar = &skymeshSidecar{server: s}
 	err = s.sidecar.Init()
@@ -216,10 +216,10 @@ func (s *skymeshServer) Serve() error {
 				rh := e.serviceAddr.AddrHandle
 				rsname := e.serviceAddr.ServiceName
 				s.mu.Lock()
-				resolver := s.resolvers[rsname]
+				router := s.nameRouters[rsname]
 				s.mu.Unlock()
-				if resolver != nil {
-					resolver.notifyInstsChange(e.isOnline, rh, e.serviceAddr.ServiceId)
+				if router != nil {
+					router.notifyInstsChange(e.isOnline, rh, e.serviceAddr.ServiceId)
 				}
 			case *RegServiceEvent:
 				e := event.(*RegServiceEvent)
@@ -238,10 +238,10 @@ func (s *skymeshServer) Serve() error {
 				s.sidecar.notifyServiceSyncAttr(e)
 				rsname := e.serviceAddr.ServiceName
 				s.mu.Lock()
-				resolver := s.resolvers[rsname]
+				router := s.nameRouters[rsname]
 				s.mu.Unlock()
-				if resolver != nil {
-					resolver.notifyInstsAttrs(e.serviceAddr.ServiceId, e.attributes)
+				if router != nil {
+					router.notifyInstsAttrs(e.serviceAddr.ServiceId, e.attributes)
 				}
 			}
 		case msg := <-s.recvQueue: //这里要优先处理消息??
@@ -308,7 +308,7 @@ func (s *skymeshServer) Release() {
 	s.urlServices = make(map[string]*skymeshService)
 	s.handleServices = make(map[uint64]*skymeshService)
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
-	s.resolvers = make(map[string]*skymeshResolver)
+	s.nameRouters = make(map[string]*skymeshNameRouter)
 	s.mu.Unlock()
 	s.serviceWG.Wait()
 	log.Warning("all services stop done!.\n")
@@ -369,11 +369,11 @@ func (s *skymeshServer) sendBySvcUrl(srcAddr *Addr, dstServiceUrl string, b []by
 }
 
 func (s *skymeshServer) sendByRouter(srcAddr *Addr, serviceName string, b []byte) error { //针对无状态服务
-	rmAddr := s.GetBestQualityService(serviceName)
-	if rmAddr == nil {
+	dstAddr := s.GetBestQualityService(serviceName)
+	if dstAddr == nil {
 		return fmt.Errorf("not find service %s router", serviceName)
 	}
-	return s.sendByHandle(srcAddr, rmAddr.AddrHandle, b)
+	return s.sendByHandle(srcAddr, dstAddr.AddrHandle, b)
 }
 
 func (s *skymeshServer) sendByHandle(srcAddr *Addr, dstHandle uint64, b []byte) error {
@@ -394,35 +394,36 @@ func (s *skymeshServer) sendByHandle(srcAddr *Addr, dstHandle uint64, b []byte) 
 
 func (s *skymeshServer) GetNameRouter(serviceName string) NameRouter {
 	s.mu.Lock()
-	ns := s.resolvers[serviceName]
-	if ns == nil {
-		ns = &skymeshResolver{
+	nr := s.nameRouters[serviceName]
+	if nr == nil {
+		nr = &skymeshNameRouter{
+			server:    s,
 			svcName:   serviceName,
 			instAddrs: make(map[uint64]*Addr),
-			watchers:  make(map[NameWatcher]bool),
+			watchers:  make(map[AppRouterWatcher]bool),
 			instAttrs: make(map[uint64]ServiceAttr),
 		}
-		s.resolvers[serviceName] = ns
+		s.nameRouters[serviceName] = nr
 	}
 	s.mu.Unlock()
 	handles, insts := s.getServiceInsts(serviceName)
 	for idx, instID := range insts {
-		ns.AddInstsAddr(instID, &Addr{ServiceName: serviceName, ServiceId: instID, AddrHandle: handles[idx]})
+		nr.AddInstsAddr(instID, &Addr{ServiceName: serviceName, ServiceId: instID, AddrHandle: handles[idx]})
 		h := handles[idx]
 		s.mu.Lock()
 		svc := s.handleServices[h]
 		s.mu.Unlock()
 		if svc != nil { //local service
-			ns.AddInstsAttr(instID, svc.GetAttribute())
+			nr.AddInstsAttr(instID, svc.GetAttribute())
 		} else {
 			rmtSvc := s.sidecar.getRemoteService(h)
 			if rmtSvc != nil {
-				ns.AddInstsAttr(instID, rmtSvc.GetAttribute())
+				nr.AddInstsAttr(instID, rmtSvc.GetAttribute())
 			}
 		}
 
 	}
-	return ns
+	return nr
 }
 
 func (s *skymeshServer) getServiceInsts(serviceName string) (handles []uint64, insts []uint64) {
@@ -453,7 +454,7 @@ func (s *skymeshServer) getAllServices() map[uint64]*skymeshService {
 
 func (s *skymeshServer) setAttribute(srcAddr *Addr, attrs ServiceAttr) error {
 	s.mu.Lock()
-	nr := s.resolvers[srcAddr.ServiceName]
+	nr := s.nameRouters[srcAddr.ServiceName]
 	s.mu.Unlock()
 	if nr != nil {
 		nr.notifyInstsAttrs(srcAddr.ServiceId, attrs)

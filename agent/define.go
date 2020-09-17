@@ -6,6 +6,7 @@ import (
 
 const (
 	AVERAGE_RTT_SAMPLING_NUM = 5 //计算平均延迟的采样次数
+	INVALID_ROUTER_ID = 0 //无效的ServiceId
 )
 
 const (

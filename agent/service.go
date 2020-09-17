@@ -94,7 +94,7 @@ type skymeshService struct {
 }
 
 func (s *skymeshService) SendBySvcNameAndInstID(serviceName string, instID uint64, msg []byte) error {
-	if instID == 0 { //选择最佳链路
+	if instID == INVALID_ROUTER_ID { //选择最佳链路
 		return s.server.sendByRouter(s.addr, serviceName, msg)
 	}
 	return s.server.sendBySvcUrl(s.addr, MakeSkymeshUrl(serviceName, instID), msg)

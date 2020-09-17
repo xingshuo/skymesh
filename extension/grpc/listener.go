@@ -124,16 +124,16 @@ func (l *skymeshListener) OnMessage(rmtAddr *skymesh.Addr, packet []byte) {
 	}
 }
 
-// skymesh NameWatcher interface
+// skymesh AppRouterWatcher interface
 func (l *skymeshListener) OnInstOnline(_ *skymesh.Addr) {
 }
 
-// skymesh NameWatcher interface
+// skymesh AppRouterWatcher interface
 func (l *skymeshListener) OnInstOffline(addr *skymesh.Addr) {
 	l.connMgr.DelConns(addr.AddrHandle)
 }
 
-// skymesh NameWatcher interface
+// skymesh AppRouterWatcher interface
 func (l *skymeshListener) OnInstSyncAttr(addr *skymesh.Addr, attrs skymesh.ServiceAttr) {
 
 }
