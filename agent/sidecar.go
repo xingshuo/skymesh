@@ -355,6 +355,26 @@ func (sc *skymeshSidecar) SyncServiceAttrToNameServer(serviceAddr *Addr, attrs S
 	return nil
 }
 
+func (sc *skymeshSidecar) SyncNameServerElection(serviceAddr *Addr, event int32) error {
+	msg := &smproto.SSMsg{
+		Cmd: smproto.SSCmd_NOTIFY_NAMESERVER_ELECTION,
+		Msg: &smproto.SSMsg_NotifyNameserverElection{
+			NotifyNameserverElection: &smproto.NotifyNameServerElection{
+				SrcHandle:            serviceAddr.AddrHandle,
+				Event:                event,
+			},
+		},
+	}
+
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
+	sc.nameserverDialer.Send(b)
+	return nil
+}
+
 func (sc *skymeshSidecar) SendAllRemote(srcAddr *Addr, serviceName string, b []byte) {
 	var rhs []uint64
 	sc.mu.Lock()

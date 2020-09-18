@@ -14,12 +14,20 @@ type AppRouterWatcher interface {
 	OnInstSyncAttr(addr *Addr, attrs ServiceAttr)
 }
 
+//用户注册选举事件监控器
+type AppElectionListener interface {
+	OnRegisterLeader(trans MeshService, result int32)     //RunForElection Callback
+	OnUnRegisterLeader()                                  //GiveUpElection Callback When GiveUp Leader Succeed
+	OnLeaderChange(leader *Addr, event LeaderChangeEvent) //WatchElection Callback
+}
+
 
 //Service Mesh通信层Cluster节点上层会话(管理一个Sidecar和下属所有Service)
 type MeshServer interface {
 	Register(serviceUrl string, service AppService) (MeshService, error)            //注册服务
 	UnRegister(serviceUrl string) error                                             //注销服务
-	GetNameRouter(serviceName string) NameRouter                                    //返回serviceName的服务路由
+	GetNameRouter(serviceName string) NameRouter                                    //返回ServiceName的服务路由
+	GetElectionLeader(serviceName string) *Addr										//获取ServiceName选举的leader地址
 	Serve() error                                                                   //阻塞循环
 	GracefulStop()                                                                  //优雅退出
 }
@@ -33,6 +41,12 @@ type MeshService interface {
 	GetLocalAddr() *Addr
 	SetAttribute(attrs ServiceAttr) error             //设置服务实例属性/标签, 所有Watch该服务名的NameWatcher都会收到通知
 	GetAttribute() ServiceAttr                        //获取服务实例属性/标签
+	RunForElection() error							  //当前服务实例参与ServiceName Leader选举
+	GiveUpElection() error							  //当前服务实例退出ServiceName Leader选举
+	WatchElection(watchSvcName string) error		  //当前服务实例关注ServiceName Leader选举结果
+	UnWatchElection(watchSvcName string) error		  //当前服务实例取消关注ServiceName Leader选举结果
+	IsLeader() bool 								  //当前服务实例是否是ServiceName选举的Leader
+	SetElectionListener(listener AppElectionListener) //设置选举事件监控器,目前限定只能设置一个
 }
 
 type NameRouter interface {

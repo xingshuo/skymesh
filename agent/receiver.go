@@ -146,6 +146,25 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			}
 			return
 		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_ELECTION_RESULT {
+			log.Info("recv election result msg.\n")
+			rsp := ssmsg.GetNotifyServiceElectionResult()
+			msg := &ElectionEvent{
+				candidate: &Addr{
+					ServiceName: rsp.Candidate.ServiceName,
+					ServiceId:   rsp.Candidate.ServiceId,
+					AddrHandle:  rsp.Candidate.AddrHandle,
+				},
+				event:  rsp.Event,
+				result: rsp.Result,
+			}
+			select {
+			case ndr.server.eventQueue <- msg:
+			default:
+				log.Error("deliver election event msg block.\n")
+			}
+			return
+		}
 	}
 	return
 }

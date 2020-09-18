@@ -178,6 +178,10 @@ func (s *Server) onMessage(msg interface{}) error {
 		h := msg.(*ServiceSyncAttr).addrHandle
 		attrs := msg.(*ServiceSyncAttr).attrs
 		return s.OnServiceSyncAttr(h, attrs)
+	case *ServiceElection:
+		h := msg.(*ServiceElection).addrHandle
+		event := msg.(*ServiceElection).event
+		return s.OnServiceElectionEvent(h, event)
 	default:
 		return fmt.Errorf("unknow msg type")
 	}
@@ -301,6 +305,23 @@ func (s *Server) OnServiceSyncAttr(addrHandle uint64, attrs []byte) error {
 		return fmt.Errorf("service sync attr not exist appID %s.", si.appID)
 	}
 	app.BroadcastSyncServiceAttr(si, attrs)
+	return nil
+}
+
+func (s *Server) OnServiceElectionEvent(addrHandle uint64, event int32) error {
+	si := s.handleServices[addrHandle]
+	if si == nil {
+		return fmt.Errorf("service election not exist handle: %d", addrHandle)
+	}
+	app := s.apps[si.appID]
+	if app == nil {
+		return fmt.Errorf("service election not exist appID %s.", si.appID)
+	}
+	if event == skymesh.KElectionRunForLeader {
+		app.OnServiceRunForElection(addrHandle)
+	} else if event == skymesh.KElectionGiveUpLeader {
+		app.OnServiceGiveupElection(addrHandle)
+	}
 	return nil
 }
 

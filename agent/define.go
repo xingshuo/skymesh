@@ -7,6 +7,7 @@ import (
 const (
 	AVERAGE_RTT_SAMPLING_NUM = 5 //计算平均延迟的采样次数
 	INVALID_ROUTER_ID = 0 //无效的ServiceId
+	INVALID_HANDLE = 0 //无效的ServiceHandle
 )
 
 const (
@@ -14,6 +15,43 @@ const (
 	kSkymeshServerRunning
 	kSkymeshServerStop
 )
+
+// if req is KElectionRunForLeader {
+// 		rsp is {KElectionRunForLeader: KElectionResultOK}
+//         or {KElectionRunForLeader: KElectionResultRunForFail}
+//         or {KElectionRunForLeader: KElectionResultAlreadyLeader}
+// }
+// if req is KElectionGiveUpLeader {
+// 		rsp is {KElectionGiveUpLeader: KElectionResultOK} //放弃leader成功,但未选举出新leader
+//     	   or {KElectionRunForLeader: KElectionResultOK} //放弃leader成功,并成功选举出新leader,直接通知KElectionRunForLeader,Agent自行通知KLostElectionLeader和KGotElectionLeader
+// }
+const (
+	//发起事件
+	KElectionRunForLeader = 1001
+	KElectionGiveUpLeader = 1002
+	//结果通知事件
+	KElectionResultOK            = 0
+	KElectionResultRunForFail    = -1001
+	KElectionResultAlreadyLeader = -1002
+)
+
+type LeaderChangeEvent int
+
+const (
+	KGotElectionLeader LeaderChangeEvent = iota
+	KLostElectionLeader
+)
+
+func (e LeaderChangeEvent) String() string {
+	switch e {
+	case KGotElectionLeader:
+		return "GotLeader"
+	case KLostElectionLeader:
+		return "LostLeader"
+	default:
+		return "Invalid-Event"
+	}
+}
 
 type ServiceAttr map[string]interface{}
 
@@ -68,6 +106,10 @@ func (addr *Addr) Network() string {
 
 func (addr *Addr) ServiceUrl() string {
 	return fmt.Sprintf("%s/%d", addr.ServiceName, addr.ServiceId)
+}
+
+func (addr *Addr) GetDetail() (ServiceName string, ServiceId uint64, AddrHandle uint64) {
+	return addr.ServiceName, addr.ServiceId, addr.AddrHandle
 }
 
 const (
@@ -149,4 +191,10 @@ type RegServiceEvent struct {
 type SyncAttrEvent struct {
 	serviceAddr *Addr
 	attributes  ServiceAttr
+}
+
+type ElectionEvent struct {
+	candidate   *Addr
+	event    int32
+	result   int32
 }

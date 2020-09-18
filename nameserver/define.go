@@ -40,3 +40,8 @@ type ServiceSyncAttr struct {
 	addrHandle uint64
 	attrs      []byte
 }
+
+type ServiceElection struct {
+	addrHandle uint64
+	event      int32
+}

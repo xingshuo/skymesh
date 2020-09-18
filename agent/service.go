@@ -83,14 +83,15 @@ func (rs *remoteService) GetAttribute() ServiceAttr {
 }
 
 type skymeshService struct {
-	server     *skymeshServer
-	addr       *Addr
-	service    AppService
-	quit       *smsync.Event
-	done       *smsync.Event
-	msgQueue   chan Message
-	mu         sync.RWMutex
-	attrs      ServiceAttr
+	server       *skymeshServer
+	addr         *Addr
+	service      AppService
+	quit         *smsync.Event
+	done         *smsync.Event
+	msgQueue     chan Message
+	mu           sync.RWMutex
+	attrs        ServiceAttr
+	elecListener AppElectionListener
 }
 
 func (s *skymeshService) SendBySvcNameAndInstID(serviceName string, instID uint64, msg []byte) error {
@@ -137,6 +138,39 @@ func (s *skymeshService) GetAttribute() ServiceAttr {
 		copy[k] = v
 	}
 	return copy
+}
+
+func (s *skymeshService) RunForElection() error {
+	return s.server.runForElection(s.addr)
+}
+
+func (s *skymeshService) GiveUpElection() error {
+	return s.server.giveUpElection(s.addr)
+}
+
+func (s *skymeshService) WatchElection(watchSvcName string) error {
+	return s.server.watchElection(s.addr, watchSvcName)
+}
+
+func (s *skymeshService) UnWatchElection(watchSvcName string) error {
+	return s.server.unWatchElection(s.addr, watchSvcName)
+}
+
+func (s *skymeshService) IsLeader() bool {
+	return s.server.isElectionLeader(s.addr)
+}
+
+func (s *skymeshService) SetElectionListener(listener AppElectionListener) {
+	s.mu.Lock()
+	s.elecListener = listener
+	s.mu.Unlock()
+}
+
+func (s *skymeshService) GetElectionListener() AppElectionListener {
+	s.mu.Lock()
+	lis := s.elecListener
+	s.mu.Unlock()
+	return lis
 }
 
 func (s *skymeshService) OnRegister(result int32) {

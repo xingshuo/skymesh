@@ -52,6 +52,10 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 			lr.OnServiceSyncAttr(&ssmsg)
 			return
 		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_NAMESERVER_ELECTION {
+			lr.OnServiceElection(&ssmsg)
+			return
+		}
 	}
 	return
 }
@@ -164,5 +168,18 @@ func (lr *lisConnReceiver) OnServiceSyncAttr(ssmsg *smproto.SSMsg) {
 	case lr.server.msg_queue <- msg:
 	default:
 		log.Error("deliver service sync attr msg block.\n")
+	}
+}
+
+func (lr *lisConnReceiver) OnServiceElection(ssmsg *smproto.SSMsg) {
+	notify := ssmsg.GetNotifyNameserverElection()
+	msg := &ServiceElection {
+		addrHandle: notify.SrcHandle,
+		event: notify.Event,
+	}
+	select {
+	case lr.server.msg_queue <- msg:
+	default:
+		log.Error("deliver service election msg block.\n")
 	}
 }
