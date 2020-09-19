@@ -68,14 +68,14 @@ func main() {
 	}
 	ns := s.GetNameRouter(watchUrl)
 	ns.Watch(&serverWatcher{c.transport})
+
 	ticker := time.NewTicker(5 * time.Second)
 	loopSeq := 1
 	for range ticker.C {
-		if loopSeq % 4 == 0 {
-			c.transport.BroadcastBySvcName(watchUrl, []byte("broadcast by name"))
-		} else {
-			c.transport.SendBySvcNameAndInstID(watchUrl, skymesh.INVALID_ROUTER_ID, []byte("notify one by name"))
-		}
+		router_id := ns.SelectRouterByLoop()
+		c.transport.SendBySvcNameAndInstID(watchUrl, router_id, []byte("RouterByLoop"))
+		router_id = ns.SelectRouterByModHash(uint64(loopSeq))
+		c.transport.SendBySvcNameAndInstID(watchUrl, router_id, []byte("RouterByModHash"))
 		loopSeq++
 	}
 	skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
