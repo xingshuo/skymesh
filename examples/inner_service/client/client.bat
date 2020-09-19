@@ -1,1 +1,0 @@
-.\main.exe -conf=.\client.json

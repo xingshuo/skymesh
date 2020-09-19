@@ -11,10 +11,6 @@ cd nameserver/bootstrap
 rm nameserver.exe
 go build -gcflags "-N -l" -mod=vendor -o nameserver.exe main.go
 cd ../../
-cp nameserver/bootstrap/nameserver.exe examples/helloworld/nameserver/main.exe
-cp nameserver/bootstrap/nameserver.exe examples/nameservice/nameserver/main.exe
-cp nameserver/bootstrap/nameserver.exe examples/inner_service/nameserver/main.exe
-cp nameserver/bootstrap/nameserver.exe examples/grpc/helloworld/nameserver/main.exe
 echo "build nameserver done."
 
 cd examples/helloworld/greeter_client
@@ -29,17 +25,17 @@ go build -gcflags "-N -l" -mod=vendor -o main.exe main.go
 cd ../../../
 echo "build greeter server done."
 
-cd examples/nameservice/client
+cd examples/features/name_router/client
 rm main.exe
 go build -gcflags "-N -l" -mod=vendor -o main.exe main.go
-cd ../../../
-echo "build nameservice client done"
+cd ../../../../
+echo "build features name_router client done"
 
-cd examples/nameservice/server
+cd examples/features/name_router/server
 rm main.exe
 go build -gcflags "-N -l" -mod=vendor -o main.exe main.go
-cd ../../../
-echo "build nameservice server done"
+cd ../../../../
+echo "build features name_router server done"
 
 cd examples/inner_service/client
 rm main.exe

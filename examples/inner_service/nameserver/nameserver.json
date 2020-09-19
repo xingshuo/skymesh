@@ -1,6 +1,0 @@
-{
-  "ServerAddress": "127.0.0.1:9100",
-  "MsgQueueSize": 20000,
-  "ServiceKeepaliveTime": 60,
-  "ServerTickInterval": 5
-}

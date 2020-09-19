@@ -26,12 +26,12 @@ func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.MeshSe
 		quit:         make(chan struct{}),
 		resolvers:    make(map[string]skymesh.NameRouter),
 	}
+	l.connMgr = NewConnMgr()
+	l.server = s
 	_, err := s.Register(serviceName, l)
 	if err != nil {
 		return nil, err
 	}
-	l.connMgr = NewConnMgr()
-	l.server = s
 	return l, nil
 }
 

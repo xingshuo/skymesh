@@ -1,0 +1,1 @@
+.\inner_service\client\main.exe -conf=.\configs\client.json

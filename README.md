@@ -41,137 +41,94 @@ Architecture
 
 Api
 -----
-    //core api:
-    s, err := skymesh.NewServer(conf, appID)
+    //--------Api使用示例开始--------
     //每个进程每个类型app只启动一个实例
-    //s是skymeshServer外部能力的抽象接口Server的实例
-    //Server定义
-    /*type Server interface {
-       	Register(serviceUrl string, service AppService) (MeshService, error)            //注册服务
-       	UnRegister(serviceUrl string) error                                             //注销服务
-       	GetNameRouter(serviceName string) NameRouter                                    //返回serviceName的服务路由
-       	GracefulStop()                                                                  //优雅退出
-      }*/
-     //详见examples
+    //s是skymeshServer外部能力的抽象接口MeshServer的实例
+    s, err := skymesh.NewServer(conf, appID)
+    
+    //svc是skymeshService外部能力的抽象接口MeshService的实例
+    svc, err = s.Register(svcUrl, AppServiceImpl)
+    svc.SendBySvcUrl(dstUrl, []byte("hello"))
+    
+    skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+    //--------Api使用示例结束---------
+    
+    Api定义详见:  agent/api.go
+    Interface定义详见:  agent/interface.go
+    功能用例详见: examples/
      
 Examples
 -----
     Windows:
-      helloworld demo:
-        Build:
-          .\build.bat
-        Run:
+      Build: .\build.bat
+      Dir:   .\examples\
+      Run <helloworld> demo:
           1.start nameserver
-            Dir: examples\helloworld\nameserver
             Cmd: .\nameserver.bat
-          2.start greeter server
-            Dir: examples\helloworld\greeter_server
-            Cmd: .\greeter_server.bat
-          3.start greeter client
-            Dir: examples\helloworld\greeter_client
-            Cmd: .\greeter_client.bat
-    
-      nameservice demo:
-        Build:
-          .\build.bat
-        Run:
+          2.start server
+            Cmd: .\helloworld_server.bat
+          3.start client
+            Cmd: .\helloworld_client.bat
+            
+      Run <features\name_router> demo:
           1.start nameserver
-            Dir: examples\nameservice\nameserver
             Cmd: .\nameserver.bat
           2.start client
-            Dir: examples\nameservice\client
-            Cmd: .\client.bat
+            Cmd: .\features_name_router_client.bat
           3.start server 1
-            Dir: examples\nameservice\server
-            Cmd: .\server.bat server1.json 101
+            Cmd: .\features_name_router_server.bat 1
           4.start server 2
-            Dir: examples\nameservice\server
-            Cmd: .\server.bat server2.json 102
+            Cmd: .\features_name_router_server.bat 2
             
-      inner_service demo: 
-        Build:
-          .\build.bat
-        Run:
+      Run <inner_service> demo: 
           1.start nameserver
-            Dir: examples\inner_service\nameserver
             Cmd: .\nameserver.bat
           2.start server
-            Dir: examples\inner_service\server
-            Cmd: .\server.bat
+            Cmd: .\inner_service_server.bat
           3.start client
-            Dir: examples\inner_service\client
-            Cmd: .\client.bat
+            Cmd: .\inner_service_client.bat
       
-      grpc helloworld demo:
-        Build:
-          .\build.bat
-        Run:
+      Run <grpc\helloworld> demo:
           1.start nameserver
-            Dir: examples\grpc\helloworld\nameserver
             Cmd: .\nameserver.bat
           2.start server
-            Dir: examples\grpc\helloworld\greeter_server
-            Cmd: .\greeter_server.bat
+            Cmd: .\grpc_helloworld_server.bat
           3.start client
-            Dir: examples\grpc\helloworld\greeter_client
-            Cmd: .\greeter_client.bat
+            Cmd: .\grpc_helloworld_client.bat
          
     Linux:
-      helloworld demo:
-        Build:
-          sh build.sh
-        Run:
+      Build: ./build.sh
+      Dir:   ./examples/
+      Run <helloworld> demo:
           1.start nameserver
-            Dir: examples/helloworld/nameserver
             Cmd: sh nameserver.sh
-          2.start greeter server
-            Dir: examples/helloworld/greeter_server
-            Cmd: sh greeter_server.sh
-          3.start greeter client
-            Dir: examples/helloworld/greeter_client
-            Cmd: sh greeter_client.sh
+          2.start server
+            Cmd: sh helloworld_server.sh
+          3.start client
+            Cmd: sh helloworld_client.sh
 
-      nameservice demo:
-        Build:
-          sh build.sh
-        Run:
+      Run <features/name_router> demo:
           1.start nameserver
-            Dir: examples/nameservice/nameserver
             Cmd: sh nameserver.sh
           2.start client
-            Dir: examples/nameservice/client
-            Cmd: sh client.sh
+            Cmd: sh features_name_router_client.sh
           3.start server 1
-            Dir: examples/nameservice/server
-            Cmd: sh server.sh server1.json 101
+            Cmd: sh features_name_router_server.sh 1
           4.start server 2
-            Dir: examples/nameservice/server
-            Cmd: sh server.sh server2.json 102
+            Cmd: sh features_name_router_server.sh 2
       
-      inner_service demo:
-        Build:
-          sh build.sh
-        Run:
+      Run <inner_service> demo:
           1.start nameserver
-            Dir: examples/inner_service/nameserver
             Cmd: sh nameserver.sh
           2.start server
-            Dir: examples/inner_service/server
-            Cmd: sh server.sh
+            Cmd: sh inner_service_server.sh
           3.start client
-            Dir: examples/inner_service/client
-            Cmd: sh client.sh
+            Cmd: sh inner_service_client.sh
       
-      grpc helloworld demo:
-        Build:
-          sh build.sh
-        Run:
+      Run <grpc/helloworld> demo:
           1.start nameserver
-            Dir: examples/grpc/helloworld/nameserver
             Cmd: sh nameserver.sh
           2.start server
-            Dir: examples/grpc/helloworld/greeter_server
-            Cmd: sh greeter_server.sh
+            Cmd: sh grpc_helloworld_server.sh
           3.start client
-            Dir: examples/grpc/helloworld/greeter_client
-            Cmd: sh greeter_client.sh
+            Cmd: sh grpc_helloworld_client.sh

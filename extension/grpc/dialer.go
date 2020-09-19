@@ -20,14 +20,14 @@ type skymeshDialer struct { //only consider service grpc client
 
 func newSkymeshDialer(serviceName string, proto VirConnProto, s skymesh.MeshServer) (*skymeshDialer, error) {
 	d := &skymeshDialer{}
-	_, err := s.Register(serviceName, d)
-	if err != nil {
-		return nil, err
-	}
 	d.server = s
 	d.virConnProto = proto
 	d.connMgr = NewConnMgr()
 	d.resolvers = make(map[string]skymesh.NameRouter)
+	_, err := s.Register(serviceName, d)
+	if err != nil {
+		return nil, err
+	}
 	return d, nil
 }
 

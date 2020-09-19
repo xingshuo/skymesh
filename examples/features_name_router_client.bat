@@ -1,0 +1,1 @@
+.\features\name_router\client\main.exe -conf=.\configs\client.json

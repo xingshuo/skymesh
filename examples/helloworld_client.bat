@@ -1,0 +1,1 @@
+.\helloworld\greeter_client\main.exe -conf=.\configs\client.json

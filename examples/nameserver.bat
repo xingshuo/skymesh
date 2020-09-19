@@ -1,0 +1,1 @@
+.\..\nameserver\bootstrap\nameserver.exe -conf=.\configs\nameserver.json

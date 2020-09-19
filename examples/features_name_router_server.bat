@@ -1,0 +1,1 @@
+.\features\name_router\server\main.exe -conf=.\configs\server%1.json -instid=10%1

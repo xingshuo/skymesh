@@ -1,0 +1,1 @@
+.\inner_service\server\main.exe -conf=.\configs\server.json
