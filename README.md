@@ -99,6 +99,7 @@ Examples
     Linux:
       Build: ./build.sh
       Dir:   ./examples/
+      Generate Shell Script: sh generate_linux_shell.sh
       Run <helloworld> demo:
           1.start nameserver
             Cmd: sh nameserver.sh
