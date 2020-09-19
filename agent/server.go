@@ -186,20 +186,25 @@ func (s *skymeshServer) UnRegister(serviceUrl string) error {
 			delete(v, svc.addr.AddrHandle)
 		}
 		leader := s.electionLeaders[svc.addr.ServiceName]
+		s.mu.Unlock()
 		if leader != nil && leader.AddrHandle == svc.addr.AddrHandle {
+			s.mu.Lock()
 			delete(s.electionLeaders, svc.addr.ServiceName)
+			s.mu.Unlock()
 			elis := svc.GetElectionListener()
 			if elis != nil {
 				elis.OnUnRegisterLeader()
 			}
 		}
-		for _,wSvc := range s.electionWatchers[svc.addr.ServiceName] {
+		s.mu.Lock()
+		watchers := s.electionWatchers[svc.addr.ServiceName]
+		s.mu.Unlock()
+		for _,wSvc := range watchers {
 			elis := wSvc.GetElectionListener()
 			if elis != nil {
 				elis.OnLeaderChange(leader, KLostElectionLeader)
 			}
 		}
-		s.mu.Unlock()
 	}
 	return nil
 }
@@ -235,6 +240,9 @@ func (s *skymeshServer) Serve() error {
 				if router != nil {
 					router.notifyInstsChange(e.isOnline, rh, e.serviceAddr.ServiceId)
 				}
+			case *RegAppEvent:
+				e := event.(*RegAppEvent)
+				s.onRegisterApp(e)
 			case *RegServiceEvent:
 				e := event.(*RegServiceEvent)
 				dh := e.dstHandle
@@ -371,7 +379,9 @@ func (s *skymeshServer) GetBestQualityService(svcName string) *Addr { //优先�
 func (s *skymeshServer) broadcastBySvcName(srcAddr *Addr, dstServiceName string, b []byte) error {
 	//本地广播
 	s.mu.Lock()
-	for lh,dstSvc := range s.nameGroupServices[dstServiceName] {
+	group := s.nameGroupServices[dstServiceName]
+	s.mu.Unlock()
+	for lh,dstSvc := range group {
 		msg := &DataMessage{
 			srcAddr:   srcAddr,
 			dstHandle: lh,
@@ -379,7 +389,6 @@ func (s *skymeshServer) broadcastBySvcName(srcAddr *Addr, dstServiceName string,
 		}
 		dstSvc.PushMessage(msg)
 	}
-	s.mu.Unlock()
 	//远程广播
 	s.sidecar.SendAllRemote(srcAddr, dstServiceName, b)
 	return nil
@@ -495,18 +504,48 @@ func (s *skymeshServer) setAttribute(srcAddr *Addr, attrs ServiceAttr) error {
 	return s.sidecar.SyncServiceAttrToNameServer(srcAddr, attrs)
 }
 
+func (s *skymeshServer) onRegisterApp(e *RegAppEvent) {
+	for _,addr := range e.leaders {
+		s.mu.Lock()
+		s.electionLeaders[addr.ServiceName] = addr
+		//通知竞选人成功当选Leader
+		leader := s.handleServices[addr.AddrHandle]
+		s.mu.Unlock()
+		if leader != nil {
+			elis := leader.GetElectionListener()
+			if elis != nil {
+				elis.OnRegisterLeader(leader, KElectionResultOK)
+			}
+		}
+		s.mu.Lock()
+		watchers := s.electionWatchers[addr.ServiceName]
+		s.mu.Unlock()
+		//通知选举结果监听者新Leader当选
+		for _,svc := range watchers {
+			elis := svc.GetElectionListener()
+			if elis != nil {
+				elis.OnLeaderChange(addr, KGotElectionLeader)
+			}
+		}
+	}
+}
+
 func (s *skymeshServer) onRunForElectionResultNotify(candidate *Addr, result int32) {
 	if result == KElectionResultOK {
 		newLeader := candidate
 		electionName := newLeader.ServiceName
+		s.mu.Lock()
 		oldLeader := s.electionLeaders[electionName]
 		s.electionLeaders[electionName] = newLeader
+		s.mu.Unlock()
 		if oldLeader != nil {
 			if oldLeader.AddrHandle == newLeader.AddrHandle { //重复通知了??
 				return
 			}
 			//通知竞选人退出成功
+			s.mu.Lock()
 			oldSvc := s.handleServices[oldLeader.AddrHandle]
+			s.mu.Unlock()
 			if oldSvc != nil {
 				oldLis := oldSvc.GetElectionListener()
 				if oldLis != nil {
@@ -514,7 +553,10 @@ func (s *skymeshServer) onRunForElectionResultNotify(candidate *Addr, result int
 				}
 			}
 			//通知选举结果监听者旧Leader退出
-			for _,svc := range s.electionWatchers[electionName] {
+			s.mu.Lock()
+			watchers := s.electionWatchers[electionName]
+			s.mu.Unlock()
+			for _,svc := range watchers {
 				elis := svc.GetElectionListener()
 				if elis != nil {
 					elis.OnLeaderChange(oldLeader, KLostElectionLeader)
@@ -522,7 +564,9 @@ func (s *skymeshServer) onRunForElectionResultNotify(candidate *Addr, result int
 			}
 		}
 		//通知竞选人成功当选Leader
+		s.mu.Lock()
 		newSvc := s.handleServices[newLeader.AddrHandle]
+		s.mu.Unlock()
 		if newSvc != nil {
 			newLis := newSvc.GetElectionListener()
 			if newLis != nil {
@@ -530,7 +574,10 @@ func (s *skymeshServer) onRunForElectionResultNotify(candidate *Addr, result int
 			}
 		}
 		//通知选举结果监听者新Leader当选
-		for _,svc := range s.electionWatchers[electionName] {
+		s.mu.Lock()
+		watchers := s.electionWatchers[electionName]
+		s.mu.Unlock()
+		for _,svc := range watchers {
 			elis := svc.GetElectionListener()
 			if elis != nil {
 				elis.OnLeaderChange(newLeader, KGotElectionLeader)
@@ -538,7 +585,9 @@ func (s *skymeshServer) onRunForElectionResultNotify(candidate *Addr, result int
 		}
 	} else {
 		//通知竞选人竞选失败
+		s.mu.Lock()
 		canSvc := s.handleServices[candidate.AddrHandle]
+		s.mu.Unlock()
 		if canSvc != nil {
 			canLis := canSvc.GetElectionListener()
 			if canLis != nil {
@@ -554,9 +603,11 @@ func (s *skymeshServer) onGiveUpElectionResultNotify(candidate *Addr, result int
 	}
 	oldLeader := candidate
 	electionName := oldLeader.ServiceName
+	s.mu.Lock()
 	delete(s.electionLeaders, electionName)
 	//通知竞选人退出成功
 	oldSvc := s.handleServices[oldLeader.AddrHandle]
+	s.mu.Unlock()
 	if oldSvc != nil {
 		oldLis := oldSvc.GetElectionListener()
 		if oldLis != nil {
@@ -564,7 +615,10 @@ func (s *skymeshServer) onGiveUpElectionResultNotify(candidate *Addr, result int
 		}
 	}
 	//通知选举结果监听者旧Leader退出
-	for _,svc := range s.electionWatchers[electionName] {
+	s.mu.Lock()
+	watchers := s.electionWatchers[electionName]
+	s.mu.Unlock()
+	for _,svc := range watchers {
 		elis := svc.GetElectionListener()
 		if elis != nil {
 			elis.OnLeaderChange(oldLeader, KLostElectionLeader)
@@ -573,6 +627,8 @@ func (s *skymeshServer) onGiveUpElectionResultNotify(candidate *Addr, result int
 }
 
 func (s *skymeshServer) runForElection(srcAddr *Addr) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	svc := s.handleServices[srcAddr.AddrHandle]
 	if svc == nil {
 		return errors.New("No exist service run for election")
@@ -588,6 +644,8 @@ func (s *skymeshServer) runForElection(srcAddr *Addr) error {
 }
 
 func (s *skymeshServer) giveUpElection(srcAddr *Addr) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	svc := s.handleServices[srcAddr.AddrHandle]
 	if svc == nil {
 		return errors.New("No exist service give up election")
@@ -603,18 +661,23 @@ func (s *skymeshServer) giveUpElection(srcAddr *Addr) error {
 }
 
 func (s *skymeshServer) watchElection(srcAddr *Addr, watchSvcName string) error {
+	s.mu.Lock()
 	svc := s.handleServices[srcAddr.AddrHandle]
+	s.mu.Unlock()
 	if svc == nil {
 		return errors.New("No exist service watch election")
 	}
+	s.mu.Lock()
 	if s.electionWatchers[watchSvcName] == nil {
 		s.electionWatchers[watchSvcName] = make(map[uint64]*skymeshService)
 	}
 	if s.electionWatchers[watchSvcName][srcAddr.AddrHandle] != nil {
+		s.mu.Unlock()
 		return errors.New("service watch election again")
 	}
 	s.electionWatchers[watchSvcName][srcAddr.AddrHandle] = svc
 	leader := s.electionLeaders[watchSvcName]
+	s.mu.Unlock()
 	elis := svc.GetElectionListener()
 	if leader != nil && elis != nil {
 		elis.OnLeaderChange(leader, KGotElectionLeader)
@@ -623,6 +686,8 @@ func (s *skymeshServer) watchElection(srcAddr *Addr, watchSvcName string) error 
 }
 
 func (s *skymeshServer) unWatchElection(srcAddr *Addr, watchSvcName string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	svc := s.handleServices[srcAddr.AddrHandle]
 	if svc == nil {
 		return errors.New("No exist service unwatch election")
@@ -638,11 +703,15 @@ func (s *skymeshServer) unWatchElection(srcAddr *Addr, watchSvcName string) erro
 }
 
 func (s *skymeshServer) GetElectionLeader(svcName string) *Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.electionLeaders[svcName]
 }
 
 func (s *skymeshServer) isElectionLeader(srcAddr *Addr) bool {
+	s.mu.Lock()
 	leader := s.electionLeaders[srcAddr.ServiceName]
+	s.mu.Unlock()
 	if leader == nil {
 		return false
 	}

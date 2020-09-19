@@ -53,3 +53,15 @@ del main.exe
 go build -gcflags "-N -l" -mod=vendor -o main.exe main.go
 cd ..\..\..\..\
 @echo "build grpc greeter server done"
+
+cd examples\features\election\client
+del main.exe
+go build -gcflags "-N -l" -mod=vendor -o main.exe main.go
+cd ..\..\..\..\
+@echo "build features election client done"
+
+cd examples\features\election\server
+del main.exe
+go build -gcflags "-N -l" -mod=vendor -o main.exe main.go
+cd ..\..\..\..\
+@echo "build features election server done"

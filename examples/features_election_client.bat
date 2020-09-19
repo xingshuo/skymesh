@@ -1,0 +1,1 @@
+.\features\election\client\main.exe -conf=.\configs\client.json

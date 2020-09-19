@@ -22,6 +22,7 @@ func (a *AppInfo) Init(appid string) {
 	a.appID = appid
 	a.services = make(map[uint64]*list.Element)
 	a.electionCandidates = make(map[string]map[uint64]*list.Element)
+	a.electionLeaders = make(map[string]*list.Element)
 	a.svclruList = list.New() //lru链表优化服务活跃检查时间复杂度
 }
 
@@ -158,6 +159,14 @@ func (a *AppInfo) OnServiceHeartbeat(handle uint64) {
 	}
 }
 
+func (a *AppInfo) GetLeaders() []*ServiceInfo {
+	var leaders []*ServiceInfo
+	for _,siItem := range a.electionLeaders {
+		leaders = append(leaders, siItem.Value.(*ServiceInfo))
+	}
+	return leaders
+}
+
 func (a *AppInfo) OnServiceRunForElection(handle uint64) {
 	siItem := a.services[handle]
 	si := siItem.Value.(*ServiceInfo)
@@ -290,6 +299,7 @@ func (a *AppInfo) OnServiceGiveupElection(handle uint64) {
 func (a *AppInfo) Release() {
 	a.services = make(map[uint64]*list.Element)
 	a.electionCandidates = make(map[string]map[uint64]*list.Element)
+	a.electionLeaders = make(map[string]*list.Element)
 	a.svclruList = list.New()
 	a.server = nil
 }

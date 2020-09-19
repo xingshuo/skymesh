@@ -37,6 +37,7 @@ message ReqRegisterApp {
 }
 
 message RspRegisterApp {
+    repeated ServiceInfo Leaders = 1; //同步当前选举全部leader
     int32 Result = 2; //0 成功, 其他失败
 }
 

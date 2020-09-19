@@ -200,11 +200,29 @@ func (s *Server) RegisterApp(serverAddr, appID string) error {
 	if lr == nil {
 		return fmt.Errorf("session (%s,%s) not find", serverAddr, appID)
 	}
+	app := s.apps[appID]
+	if app != nil {
+		log.Infof("re-register app %s.\n", appID)
+	} else {
+		app = &AppInfo{server:s}
+		app.Init(appID)
+		s.apps[appID] = app
+	}
+	siLeaders := app.GetLeaders()
+	pbLeaders := make([]*smproto.ServiceInfo, len(siLeaders))
+	for i,si := range siLeaders {
+		pbLeaders[i] = &smproto.ServiceInfo {
+			ServiceName: si.serviceAddr.ServiceName,
+			ServiceId: si.serviceAddr.ServiceId,
+			AddrHandle: si.serviceAddr.AddrHandle,
+		}
+	}
 	msg := &smproto.SSMsg{
 		Cmd: smproto.SSCmd_RSP_REGISTER_APP,
 		Msg: &smproto.SSMsg_RegisterAppRsp{
 			RegisterAppRsp: &smproto.RspRegisterApp{
 				Result: int32(smproto.SSError_OK),
+				Leaders: pbLeaders,
 			},
 		},
 	}
@@ -215,14 +233,6 @@ func (s *Server) RegisterApp(serverAddr, appID string) error {
 	}
 	lr.Send(b)
 
-	app := s.apps[appID]
-	if app != nil {
-		log.Infof("re-register app %s.\n", appID)
-	} else {
-		app = &AppInfo{server:s}
-		app.Init(appID)
-		s.apps[appID] = app
-	}
 	app.NotifyOthersOnlineToSelf(serverAddr, lr)
 	return nil
 }

@@ -82,7 +82,25 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_RSP_REGISTER_APP {
-			log.Debugf("register app %s result:%d", ndr.server.appID, ssmsg.GetRegisterAppRsp().Result)
+			rsp := ssmsg.GetRegisterAppRsp()
+			log.Debugf("register app %s result:%d", ndr.server.appID, rsp.Result)
+			leaders := make([]*Addr, len(rsp.Leaders))
+			for i,pbAddr := range rsp.Leaders {
+				leaders[i] = &Addr {
+					ServiceName: pbAddr.ServiceName,
+					ServiceId: pbAddr.ServiceId,
+					AddrHandle: pbAddr.AddrHandle,
+				}
+			}
+			msg := &RegAppEvent{
+				leaders: leaders,
+				result: rsp.Result,
+			}
+			select {
+			case ndr.server.eventQueue <- msg:
+			default:
+				log.Error("deliver register app event msg block.\n")
+			}
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_RSP_REGISTER_SERVICE {
@@ -95,7 +113,7 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			select {
 			case ndr.server.eventQueue <- msg:
 			default:
-				log.Error("deliver register event msg block.\n")
+				log.Error("deliver register service event msg block.\n")
 			}
 			return
 		}

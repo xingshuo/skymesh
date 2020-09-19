@@ -183,6 +183,11 @@ type OnlineEvent struct {
 	isOnline    bool
 }
 
+type RegAppEvent struct {
+	leaders   []*Addr
+	result    int32
+}
+
 type RegServiceEvent struct {
 	dstHandle uint64
 	result    int32

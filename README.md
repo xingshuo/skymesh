@@ -5,15 +5,17 @@ Skymesh
         *名字服务能力
         *支持自定义协议rpc通信的基础服务(inner_service)
         *grpc支持(skymesh名字服务打通 && 继承其原生能力)
+        *路由选择方案支持(轮询、取模hash、最佳质量)
+        *主备节点选举
+        *服务实例设置属性(对应路由节点获取属性变更通知)/获取属性
     待补充的功能:
         *metric模块
         *trace模块
         *log模块扩充
-        *路由选择方案支持(轮询、一致性hash、用户自定义...)
-        *主备节点选举
-        *路由节点状态变更通知
+        *有状态路由选择方案支持(一致性hash...)
     待优化的功能:
         *性能优化(sync.Mutex -> sync.RWMutex, map -> sync.Map...)
+        *skymeshServer锁粒度检查 && 死锁check
         *节点上下线流程完善(防止数据比上线事件先到之类)
         *节点Event和Data使用统一recv chan
         *gonet模块重构(copy on write)
@@ -78,12 +80,12 @@ Examples
       Run <features\name_router> demo:
           1.start nameserver
             Cmd: .\nameserver.bat
-          2.start client
-            Cmd: .\features_name_router_client.bat
-          3.start server 1
+          2.start server 1
             Cmd: .\features_name_router_server.bat 1
-          4.start server 2
+          3.start server 2
             Cmd: .\features_name_router_server.bat 2
+          4.start client
+            Cmd: .\features_name_router_client.bat
             
       Run <inner_service> demo: 
           1.start nameserver
@@ -100,6 +102,16 @@ Examples
             Cmd: .\grpc_helloworld_server.bat
           3.start client
             Cmd: .\grpc_helloworld_client.bat
+      
+      Run <features\election> demo:
+          1.start nameserver
+            Cmd: .\nameserver.bat
+          2.start server 1
+            Cmd: .\features_election_server.bat 1
+          3.start server 2
+            Cmd: .\features_election_server.bat 2
+          4.start client
+            Cmd: .\features_election_client.bat
          
     Linux:
       运行`sh generate_linux_shell.sh`生成对应的build.sh和examples/目录下的*.sh, 其余同windows
