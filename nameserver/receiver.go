@@ -74,7 +74,7 @@ func (lr *lisConnReceiver) Send(b []byte) {
 }
 
 func (lr *lisConnReceiver) OnRegisterApp(ssmsg *smproto.SSMsg) {
-	log.Info("on register app\n")
+	log.Debug("on register app\n")
 	req := ssmsg.GetRegisterAppReq()
 	lr.appid = req.AppID
 	lr.serverAddress = req.ServerAddr
@@ -92,7 +92,7 @@ func (lr *lisConnReceiver) OnRegisterApp(ssmsg *smproto.SSMsg) {
 }
 
 func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
-	log.Info("on register service\n")
+	log.Debug("on register service\n")
 	req := ssmsg.GetRegisterServiceReq().GetServiceInfo()
 	if !lr.registered {
 		msg := &smproto.SSMsg{
@@ -121,7 +121,7 @@ func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 			AddrHandle:  req.AddrHandle,
 		},
 	}
-	log.Infof("register service %s\n", msg.serviceAddr)
+	log.Debugf("register service %s\n", msg.serviceAddr)
 	select {
 	case lr.server.msg_queue <- msg:
 	default:
@@ -130,7 +130,7 @@ func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 }
 
 func (lr *lisConnReceiver) OnUnRegisterService(ssmsg *smproto.SSMsg) {
-	log.Info("on un-register service\n")
+	log.Debug("on un-register service\n")
 	req := ssmsg.GetUnregisterServiceReq()
 	if !lr.registered {
 		log.Errorf("app %s not register.", lr.appid)

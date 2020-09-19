@@ -309,7 +309,7 @@ func (s *skymeshServer) Release() {
 		log.Error("try to release no running server.\n")
 		return
 	}
-	log.Info("release start.\n")
+	log.Debug("release start.\n")
 	s.setState(kSkymeshServerStop)
 	for len(s.recvQueue) > 0 {
 		msg := <-s.recvQueue
@@ -321,7 +321,7 @@ func (s *skymeshServer) Release() {
 			svc.PushMessage(msg)
 		}
 	}
-	log.Info("handle remain msg done.\n")
+	log.Debug("handle remain msg done.\n")
 	var hSvcs []*skymeshService
 	s.mu.Lock()
 	for _, svc := range s.handleServices {
@@ -332,7 +332,7 @@ func (s *skymeshServer) Release() {
 		s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
 		svc.Stop()
 	}
-	log.Info("stop all services.\n")
+	log.Debug("stop all services.\n")
 	s.sidecar.Release()
 	s.mu.Lock()
 	s.urlServices = make(map[string]*skymeshService)

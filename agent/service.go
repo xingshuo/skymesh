@@ -218,7 +218,7 @@ func (s *skymeshService) Serve() {
 				}
 			}
 		case <-s.quit.Done():
-			log.Infof("service %s recv quit (%d).\n", s.addr, len(s.msgQueue))
+			log.Debugf("service %s recv quit (%d).\n", s.addr, len(s.msgQueue))
 			for len(s.msgQueue) > 0 {
 				msg := <-s.msgQueue
 				switch msg.GetMessageType() {
@@ -230,7 +230,7 @@ func (s *skymeshService) Serve() {
 					s.server.sidecar.sendPingAck(pingMsg.dstHandle, pingMsg.seq, pingMsg.srcServerAddr)
 				}
 			}
-			log.Info("handle service remain msg done.\n")
+			log.Debug("handle service remain msg done.\n")
 			s.done.Fire()
 			return
 		}

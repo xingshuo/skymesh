@@ -82,11 +82,11 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_RSP_REGISTER_APP {
-			log.Infof("register app %s result:%d", ndr.server.appID, ssmsg.GetRegisterAppRsp().Result)
+			log.Debugf("register app %s result:%d", ndr.server.appID, ssmsg.GetRegisterAppRsp().Result)
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_RSP_REGISTER_SERVICE {
-			log.Info("recv register service rsp.\n")
+			log.Debug("recv register service rsp.\n")
 			rsp := ssmsg.GetRegisterServiceRsp()
 			msg := &RegServiceEvent{
 				dstHandle: rsp.AddrHandle,
@@ -100,7 +100,7 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_ONLINE {
-			log.Info("recv online msg.\n")
+			log.Debug("recv online msg.\n")
 			rsp := ssmsg.GetNotifyServiceOnline()
 			msg := &OnlineEvent{
 				serviceAddr: &Addr{
@@ -116,14 +116,14 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			select {
 			case ndr.server.eventQueue <- msg:
 				ticker.Stop()
-				log.Info("deliver online event msg succeed.\n")
+				log.Debug("deliver online event msg succeed.\n")
 			case <-ticker.C:
 				log.Errorf("deliver online event msg block %ds.\n", deadline)
 			}
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_SYNCATTR {
-			log.Info("recv sync attr msg.\n")
+			log.Debug("recv sync attr msg.\n")
 			rsp := ssmsg.GetNotifyServiceAttr()
 			var attrs ServiceAttr
 			err = json.Unmarshal(rsp.Data, &attrs)
@@ -147,7 +147,7 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_ELECTION_RESULT {
-			log.Info("recv election result msg.\n")
+			log.Debug("recv election result msg.\n")
 			rsp := ssmsg.GetNotifyServiceElectionResult()
 			msg := &ElectionEvent{
 				candidate: &Addr{
@@ -166,7 +166,7 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_KICK_OFF {
-			log.Info("recv kick off msg.\n")
+			log.Debug("recv kick off msg.\n")
 			rsp := ssmsg.GetNotifyServiceKickoff()
 			msg := &KickOffEvent {
 				dstHandle: rsp.AddrHandle,

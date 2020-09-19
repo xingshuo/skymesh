@@ -50,7 +50,9 @@ func (w *serverWatcher) OnInstOffline(addr *skymesh.Addr) {
 	log.Infof("service %s inst offline.", addr)
 }
 
-func (w *serverWatcher) OnInstSyncAttr(addr *skymesh.Addr, attrs skymesh.ServiceAttr) {}
+func (w *serverWatcher) OnInstSyncAttr(addr *skymesh.Addr, attrs skymesh.ServiceAttr) {
+	log.Infof("service: %d sync attr: %v.\n", addr.ServiceId, attrs)
+}
 
 func main() {
 	flag.StringVar(&conf, "conf", "config.json", "greeter client config")

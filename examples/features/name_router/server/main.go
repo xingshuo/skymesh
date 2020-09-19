@@ -15,10 +15,12 @@ var (
 )
 
 type Server struct {
+	service skymesh.MeshService
 }
 
-func (s *Server) OnRegister(trans skymesh.MeshService, result int32) {
+func (s *Server) OnRegister(svc skymesh.MeshService, result int32) {
 	log.Info("greeter server register ok.\n")
+	s.service = svc
 }
 
 func (s *Server) OnUnRegister() {
@@ -26,7 +28,15 @@ func (s *Server) OnUnRegister() {
 }
 
 func (s *Server) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
-	log.Infof("recv client msg: %s from %s.\n", string(msg),rmtAddr)
+	smsg := string(msg)
+	log.Infof("recv client msg: %s.\n", string(smsg))
+	attrs := s.service.GetAttribute()
+	if attrs[smsg] == nil {
+		attrs[smsg] = 1
+	} else {
+		attrs[smsg] = attrs[smsg].(int) + 1
+	}
+	s.service.SetAttribute(attrs)
 }
 
 func main() {
