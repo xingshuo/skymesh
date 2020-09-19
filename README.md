@@ -19,7 +19,7 @@ Skymesh
         *gonet模块重构(copy on write)
         *nameserver改成无状态集群 + db
 
-summary
+Summary
 -------
     1. ServiceUrl格式: [skymesh://]appid.env_name.service_name/instance_id
         appid为应用名称, env_name 为二级范围(如游戏的大区)
@@ -27,19 +27,19 @@ summary
         每个ServiceUrl 全网格唯一确定一个服务实例
     2. 服务间通信协议格式: 4字节包头长度 + pb压缩内容
 
-pre-env
+PrepareEnv
 -------
     golang 1.13及以上
 
-platform
------
+Platform
+-------
     Linux/Windows
 
 Architecture
 -------
 ![flowchart](https://github.com/xingshuo/skymesh/blob/master/flowchart.png)
 
-Api
+Api && Interface
 -----
     //--------Api使用示例开始--------
     //每个进程每个类型app只启动一个实例
@@ -55,7 +55,6 @@ Api
     
     Api定义详见:  agent/api.go
     Interface定义详见:  agent/interface.go
-    功能用例详见: examples/
      
 Tips
 -----
