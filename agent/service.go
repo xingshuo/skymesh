@@ -1,6 +1,7 @@
 package skymesh
 
 import (
+	"fmt"
 	smsync "github.com/xingshuo/skymesh/common/sync"
 	"github.com/xingshuo/skymesh/log"
 	"sync"
@@ -92,6 +93,7 @@ type skymeshService struct {
 	mu           sync.RWMutex
 	attrs        ServiceAttr
 	elecListener AppElectionListener
+	regNotify    chan error
 }
 
 func (s *skymeshService) SendBySvcNameAndInstID(serviceName string, instID uint64, msg []byte) error {
@@ -209,6 +211,11 @@ func (s *skymeshService) Serve() {
 			case REGISTER_MESSAGE:
 				regMsg := msg.(*RegisterMessage)
 				s.service.OnRegister(s, regMsg.result)
+				if regMsg.result == 0 {
+					s.regNotify <- nil
+				} else {
+					s.regNotify <- fmt.Errorf("register service fail(%d)", regMsg.result)
+				}
 			}
 		case <-s.quit.Done():
 			log.Infof("service %s recv quit (%d).\n", s.addr, len(s.msgQueue))

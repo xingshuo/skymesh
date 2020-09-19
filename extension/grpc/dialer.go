@@ -12,29 +12,17 @@ import (
 type skymeshDialer struct { //only consider service grpc client
 	mu           sync.Mutex
 	virConnProto VirConnProto      // virtual conn proto
-	connMgr *ConnMgr
-
-	regResult chan int32
-	trans     skymesh.MeshService
-	server    skymesh.MeshServer
-	resolvers map[string]skymesh.NameRouter
+	connMgr      *ConnMgr
+	trans        skymesh.MeshService
+	server       skymesh.MeshServer
+	resolvers    map[string]skymesh.NameRouter
 }
 
 func newSkymeshDialer(serviceName string, proto VirConnProto, s skymesh.MeshServer) (*skymeshDialer, error) {
-	d := &skymeshDialer{regResult: make(chan int32)}
+	d := &skymeshDialer{}
 	_, err := s.Register(serviceName, d)
 	if err != nil {
 		return nil, err
-	}
-	// wait skymesh service register complete
-	select {
-	case <-time.After(2 * time.Second):
-		_ = s.UnRegister(serviceName)
-		return nil, fmt.Errorf("register default skymesh client timeout")
-	case regCode := <-d.regResult:
-		if regCode != 0 {
-			return nil, fmt.Errorf("register default skymesh client fail(%v)", regCode)
-		}
 	}
 	d.server = s
 	d.virConnProto = proto
@@ -46,7 +34,6 @@ func newSkymeshDialer(serviceName string, proto VirConnProto, s skymesh.MeshServ
 // skymesh AppService interface
 func (d *skymeshDialer) OnRegister(trans skymesh.MeshService, result int32) {
 	d.trans = trans
-	d.regResult <- result
 }
 
 // skymesh AppService interface

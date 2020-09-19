@@ -42,7 +42,7 @@ Architecture
 Api
 -----
     //core api:
-    s, err := skymesh.NewServer(conf, appID, doServe)
+    s, err := skymesh.NewServer(conf, appID)
     //每个进程每个类型app只启动一个实例
     //s是skymeshServer外部能力的抽象接口Server的实例
     //Server定义
@@ -50,7 +50,6 @@ Api
        	Register(serviceUrl string, service AppService) (MeshService, error)            //注册服务
        	UnRegister(serviceUrl string) error                                             //注销服务
        	GetNameRouter(serviceName string) NameRouter                                    //返回serviceName的服务路由
-       	Serve() error                                                                   //阻塞循环
        	GracefulStop()                                                                  //优雅退出
       }*/
      //详见examples

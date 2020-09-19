@@ -35,7 +35,6 @@ func RegisterService(server skymesh.MeshServer, serviceUrl string) (SMService, e
 		serviceUrl:   serviceUrl,
 		server:       server,
 		rpcFramework: new(RpcFramework),
-		regResult:    make(chan error),
 		methods:      make(map[string]methodHandler),
 	}
 	err := s.init()
@@ -85,7 +84,6 @@ type SMServiceImpl struct {
 	serviceUrl         string
 	server             skymesh.MeshServer
 	transport		   skymesh.MeshService
-	regResult          chan error		// 注册完成时的通知,将skymeshService的异步注册转为同步
 	seq                uint64
 	methods            map[string]methodHandler
 	serverInterceptors []SMInterceptor
@@ -96,13 +94,7 @@ type SMServiceImpl struct {
 
 func (s *SMServiceImpl) init() error {
 	s.rpcFramework.Init()
-	meshSvc,err := s.server.Register(s.serviceUrl, s)
-	if err != nil {
-		return err
-	}
-	s.transport = meshSvc
-	// 同步等待注册完成的skymesh通知
-	err = <-s.regResult
+	_,err := s.server.Register(s.serviceUrl, s)
 	return err
 }
 
@@ -193,9 +185,7 @@ func (s *SMServiceImpl) ApplyClientInterceptors(interceptors ...SMInterceptor) {
 // impl of skymesh AppService
 func (s *SMServiceImpl) OnRegister(trans skymesh.MeshService, result int32) {
 	if result == 0 {
-		s.regResult <- nil
-	} else {
-		s.regResult <- fmt.Errorf("register fail(%d)", result)
+		s.transport = trans
 	}
 }
 

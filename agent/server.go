@@ -5,40 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"os"
-	"os/signal"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	smsync "github.com/xingshuo/skymesh/common/sync"
 	"github.com/xingshuo/skymesh/log"
 )
 
-
-func NewServer(conf string, appID string, doServe bool) (MeshServer, error) { //每个进程每个appid只启动一个实例
-	s := &skymeshServer{}
-	err := s.Init(conf, appID, doServe)
-	if err != nil {
-		return nil, err
-	}
-	return s, err
-}
-
-//GraceServer可以是skymeshServer, grpcServer...
-type GraceServer interface {
-	GracefulStop()
-}
-
-//接收指定信号，优雅退出接口
-func WaitSignalToStop(s GraceServer, sigs ...os.Signal) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, sigs...)
-	sig := <-c
-	log.Infof("MeshServer(%v) exit with signal(%d)\n", syscall.Getpid(), sig)
-	s.GracefulStop()
-}
 
 type skymeshServer struct {
 	appID string
@@ -139,9 +113,10 @@ func (s *skymeshServer) loadConfig(conf string) error {
 func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshService, error) {
 	serviceUrl = StripSkymeshUrlPrefix(serviceUrl)
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	svc := s.urlServices[serviceUrl]
+	s.mu.Unlock()
 	log.Infof("register service: %s\n", serviceUrl)
-	if svc, ok := s.urlServices[serviceUrl]; ok {
+	if svc != nil {
 		return svc, errors.New("skymesh register service repeated")
 	}
 	addr, err := SkymeshUrl2Addr(serviceUrl)
@@ -155,20 +130,23 @@ func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshSer
 		return nil, err
 	}
 
-	svc := &skymeshService {
+	svc = &skymeshService {
 		server:   s,
 		addr:     addr,
 		service:  service,
 		quit:     smsync.NewEvent("skymesh.skymeshService.quit"),
 		done:     smsync.NewEvent("skymesh.skymeshService.done"),
 		msgQueue: make(chan Message, s.cfg.ServiceQueueSize),
+		regNotify:make(chan error, 1),
 	}
+	s.mu.Lock()
 	s.urlServices[serviceUrl] = svc
 	s.handleServices[addr.AddrHandle] = svc
 	if s.nameGroupServices[addr.ServiceName] == nil {
 		s.nameGroupServices[addr.ServiceName] = make(map[uint64]*skymeshService)
 	}
 	s.nameGroupServices[addr.ServiceName][addr.AddrHandle] = svc
+	s.mu.Unlock()
 
 	s.serviceWG.Add(1)
 	go func() {
@@ -176,6 +154,17 @@ func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshSer
 		log.Infof("service %s quit.\n", svc.addr)
 		s.serviceWG.Done()
 	}()
+	// 同步等待注册结果通知
+	select {
+	case <-time.After(3 * time.Second):
+		s.UnRegister(serviceUrl)
+		return nil, fmt.Errorf("register service timeout")
+	case err := <- svc.regNotify:
+		if err != nil {
+			s.UnRegister(serviceUrl)
+			return nil, err
+		}
+	}
 	return svc, nil
 }
 

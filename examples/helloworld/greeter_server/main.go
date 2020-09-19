@@ -21,38 +21,30 @@ type greeterServer struct {
 
 func (s *greeterServer) OnRegister(trans skymesh.MeshService, result int32) {
 	log.Info("greeter server register ok.\n")
+	s.transport = trans
 }
 
-func (s *greeterServer) OnUnRegister() {
-
-}
+func (s *greeterServer) OnUnRegister() {}
 
 func (s *greeterServer) OnMessage(rmtAddr *skymesh.Addr, msg []byte) {
 	log.Infof("recv client msg %s from %s.\n", string(msg),rmtAddr)
-	if s.transport != nil {
-		s.transport.SendByHandle(rmtAddr.AddrHandle, []byte(greetMessage))
-	}
+	s.transport.SendByHandle(rmtAddr.AddrHandle, []byte(greetMessage))
 }
 
 func main() {
 	flag.StringVar(&conf,"conf", "config.json", "greeter server config")
 	flag.Parse()
-	s,err := skymesh.NewServer(conf, appID, false)
+	s,err := skymesh.NewServer(conf, appID)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	gs := &greeterServer{}
-	meshSvc,err := s.Register(svcUrl, gs)
+	_,err = s.Register(svcUrl, gs)
 	if err != nil {
 		log.Errorf("register %s err:%v\n", svcUrl,err)
 		return
 	}
-	gs.transport = meshSvc
-	log.Info("ready to serve.\n")
-	if err = s.Serve(); err != nil {
-		log.Errorf("serve err:%v.\n", err)
-	}
+	skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	log.Info("server quit.\n")
 }

@@ -2,11 +2,9 @@ package skymesh_grpc //nolint
 
 import (
 	"fmt"
-	"net"
-	"time"
-
-	"github.com/xingshuo/skymesh/log"
 	"github.com/xingshuo/skymesh/agent"
+	"github.com/xingshuo/skymesh/log"
+	"net"
 )
 
 type skymeshListener struct {
@@ -16,7 +14,6 @@ type skymeshListener struct {
 	connected chan *SkymeshConn // sync channel for accept conn
 	quit      chan struct{}
 
-	regResult chan error // 注册完成时的通知，将skymesh的异步注册转为同步注册
 	trans     skymesh.MeshService
 	server    skymesh.MeshServer
 	resolvers map[string]skymesh.NameRouter
@@ -25,11 +22,8 @@ type skymeshListener struct {
 func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.MeshServer) (*skymeshListener, error) {
 	l := &skymeshListener{
 		virConnProto: proto,
-		connMgr:      nil,
 		connected:    make(chan *SkymeshConn, 1024),
 		quit:         make(chan struct{}),
-		regResult:    make(chan error),
-		trans:        nil,
 		resolvers:    make(map[string]skymesh.NameRouter),
 	}
 	_, err := s.Register(serviceName, l)
@@ -38,27 +32,13 @@ func newSkymeshListener(serviceName string, proto VirConnProto, s skymesh.MeshSe
 	}
 	l.connMgr = NewConnMgr()
 	l.server = s
-	// 同步等待注册完成的skymesh通知
-	select {
-	case <-time.After(2 * time.Second):
-		_ = s.UnRegister(serviceName)
-		return nil, fmt.Errorf("skymesh register timeout")
-	case err = <-l.regResult:
-	}
-	if err != nil {
-		return nil, err
-	}
-
 	return l, nil
 }
 
 // skymesh AppService interface
 func (l *skymeshListener) OnRegister(trans skymesh.MeshService, result int32) {
-	l.trans = trans
 	if result == 0 {
-		l.regResult <- nil
-	} else {
-		l.regResult <- fmt.Errorf("register fail(%d)", result)
+		l.trans = trans
 	}
 }
 

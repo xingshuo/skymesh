@@ -17,6 +17,9 @@ func (sr *skymeshNameRouter) Watch(w AppRouterWatcher) {
 	sr.mu.Lock()
 	sr.watchers[w] = true
 	sr.mu.Unlock()
+	for _,addr := range sr.instAddrs {
+		w.OnInstOnline(addr)
+	}
 }
 
 func (sr *skymeshNameRouter) UnWatch(w AppRouterWatcher) {

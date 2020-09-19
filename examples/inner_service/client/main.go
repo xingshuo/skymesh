@@ -65,30 +65,24 @@ func greetServer(service inner_service.SMService) {
 func main() {
 	flag.StringVar(&conf, "conf", "config.json", "greeter client config")
 	flag.Parse()
-	s, err := skymesh.NewServer(conf, appID, false)
+	s, err := skymesh.NewServer(conf, appID)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	ticker := time.NewTicker(3 * time.Second)
-	go func() {
-		service,err := inner_service.RegisterService(s, svcUrl)
-		if err != nil {
-			log.Errorf("register SMService err:%v.\n", err)
-			return
-		}
-		service.ApplyClientInterceptors(greetInterceptor)
-		for range ticker.C {
-			greetServer(service)
-		}
-	}()
-
-	log.Info("ready to serve.\n")
-	if err = s.Serve(); err != nil {
-		log.Errorf("serve err:%v.\n", err)
+	service,err := inner_service.RegisterService(s, svcUrl)
+	if err != nil {
+		log.Errorf("register SMService err:%v.\n", err)
+		return
 	}
+	service.ApplyClientInterceptors(greetInterceptor)
+	for range ticker.C {
+		greetServer(service)
+	}
+
+	skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	ticker.Stop()
 	log.Info("server quit.\n")
 }

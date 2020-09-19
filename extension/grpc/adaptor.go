@@ -29,7 +29,7 @@ func (ad *grpcAdaptor) register(conf string, appID string) error {
 	if s != nil {
 		return ErrAppReRegister
 	}
-	s,err := skymesh.NewServer(conf, appID, true)
+	s,err := skymesh.NewServer(conf, appID)
 	if err != nil {
 		return err
 	}

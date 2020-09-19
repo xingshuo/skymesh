@@ -33,12 +33,11 @@ func main() {
 	flag.StringVar(&conf,"conf", "config.json", "server config")
 	flag.Uint64Var(&svcInstId, "instid", svcInstId, "name service inst id")
 	flag.Parse()
-	s,err := skymesh.NewServer(conf, appID, false)
+	s,err := skymesh.NewServer(conf, appID)
 	if err != nil {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	svc := &Server{}
 	svcUrl := fmt.Sprintf("%s.weixin1.Server/%d", appID, svcInstId)
 	_,err = s.Register(svcUrl, svc)
@@ -46,9 +45,6 @@ func main() {
 		log.Errorf("register %s err:%v\n", svcUrl,err)
 		return
 	}
-	log.Info("ready to serve.\n")
-	if err = s.Serve(); err != nil {
-		log.Errorf("serve err:%v.\n", err)
-	}
+	skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	log.Info("server quit.\n")
 }
