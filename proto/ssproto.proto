@@ -16,6 +16,7 @@ enum SSCmd {
     NOTIFY_SERVICE_SYNCATTR      = 1008;
     NOTIFY_NAMESERVER_ELECTION   = 1009;
     NOTIFY_SERVICE_ELECTION_RESULT = 1010;
+    NOTIFY_SERVICE_KICK_OFF      = 1011;
     //agent && agent 2000 ~ 2999
     NOTIFY_SERVICE_MESSAGE  = 2000;
     REQ_PING_SERVICE        = 2001;
@@ -103,6 +104,11 @@ message NotifyServiceElectionResult {
     int32       Result  = 3; //KElectionResultOK / KElectionResultRunForFail / KElectionResultAlreadyLeader ...
 }
 
+//NameServer强踢某Service下线
+message NotifyServiceKickOff {
+    uint64 AddrHandle = 1;
+}
+
 //Agent服务间Ping包
 message ReqServicePing {
     uint64 Seq = 1;
@@ -128,9 +134,10 @@ message SSMsg {
       NotifyNameServerHeartBeat notify_nameserver_hb       = 106;
       NotifyNameServerSyncAttr  notify_nameserver_attr     = 107;
       NotifyServiceSyncAttr  notify_service_attr           = 108;
-      NotifyNameServerElection          notify_nameserver_election = 109;
+      NotifyNameServerElection  notify_nameserver_election = 109;
       NotifyServiceElectionResult   notify_service_election_result = 110;
-      NotifyServiceMessage notify_service_message          = 200;
+      NotifyServiceKickOff   notify_service_kickoff        = 111;
+      NotifyServiceMessage   notify_service_message        = 200;
       ReqServicePing     service_ping_req                  = 201;
       RspServicePing     service_ping_rsp                  = 202;
   }

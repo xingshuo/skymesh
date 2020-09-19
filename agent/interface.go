@@ -21,6 +21,7 @@ type AppElectionListener interface {
 	OnLeaderChange(leader *Addr, event LeaderChangeEvent) //WatchElection Callback
 }
 
+//============================以上为用户自定义接口, 以下为框架提供接口==========================
 
 //Service Mesh通信层Cluster节点上层会话(管理一个Sidecar和下属所有Service)
 type MeshServer interface {
@@ -49,6 +50,7 @@ type MeshService interface {
 	SetElectionListener(listener AppElectionListener) //设置选举事件监控器,目前限定只能设置一个
 }
 
+//对应ServiceName的名字路由管理器
 type NameRouter interface {
 	Watch(watcher AppRouterWatcher)
 	UnWatch(watcher AppRouterWatcher)

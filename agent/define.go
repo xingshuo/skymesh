@@ -194,7 +194,11 @@ type SyncAttrEvent struct {
 }
 
 type ElectionEvent struct {
-	candidate   *Addr
-	event    int32
-	result   int32
+	candidate *Addr
+	event     int32
+	result    int32
+}
+
+type KickOffEvent struct {
+	dstHandle uint64
 }

@@ -1,19 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"os"
-	"os/signal"
 	"syscall"
-	"context"
 	"time"
 
-	skymesh "github.com/xingshuo/skymesh/agent"
-	"github.com/xingshuo/skymesh/log"
 	"github.com/golang/protobuf/proto"
+	skymesh "github.com/xingshuo/skymesh/agent"
 	pb "github.com/xingshuo/skymesh/examples/inner_service"
 	inner_service "github.com/xingshuo/skymesh/extension/inner_service"
+	"github.com/xingshuo/skymesh/log"
 )
 
 var (
@@ -25,17 +23,6 @@ var (
 	NotifyName   = "Jerry"
 	CallName     = "Bob"
 )
-
-func handleSignal(s skymesh.MeshServer) {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c)
-	for sig := range c {
-		fmt.Printf("recv sig %d\n", sig)
-		if sig == syscall.SIGINT || sig == syscall.SIGTERM || sig == syscall.SIGQUIT {
-			s.GracefulStop()
-		}
-	}
-}
 
 func greetInterceptor(ctx context.Context, b []byte, handler inner_service.HandlerFunc) (interface{}, error) {
 	startTime := time.Now()
@@ -83,7 +70,7 @@ func main() {
 		log.Errorf("new server err:%v.\n", err)
 		return
 	}
-	go handleSignal(s)
+	go skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
 	ticker := time.NewTicker(3 * time.Second)
 	go func() {

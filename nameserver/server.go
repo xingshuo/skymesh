@@ -167,7 +167,7 @@ func (s *Server) onMessage(msg interface{}) error {
 		return s.RegisterService(appID, svrAddr, svcAddr)
 	case *UnRegServiceMsg:
 		h := msg.(*UnRegServiceMsg).addrHandle
-		return s.UnRegisterService(h)
+		return s.UnRegisterService(h, false)
 	case *ServiceHeartbeat:
 		h := msg.(*ServiceHeartbeat).addrHandle
 		return s.OnServiceHeartbeat(h)
@@ -266,7 +266,7 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 	return nil
 }
 
-func (s *Server) UnRegisterService(addrHandle uint64) error {
+func (s *Server) UnRegisterService(addrHandle uint64, kickOff bool) error {
 	log.Infof("un register service %d.\n", addrHandle)
 	si := s.handleServices[addrHandle]
 	if si == nil {
@@ -277,8 +277,27 @@ func (s *Server) UnRegisterService(addrHandle uint64) error {
 		return fmt.Errorf("unregister not exist appID %s.", si.appID)
 	}
 	delete(s.handleServices, addrHandle)
-	app.RemoveItem(si.serviceAddr.AddrHandle)
+	//服务下线,先退出选举
+	app.OnServiceGiveupElection(addrHandle)
+	app.RemoveItem(addrHandle)
 	app.BroadcastOnlineToOthers(si, false)
+	if kickOff { //通知被踢服务下线处理
+		msg := &smproto.SSMsg{
+			Cmd:  smproto.SSCmd_NOTIFY_SERVICE_KICK_OFF,
+			Msg:  &smproto.SSMsg_NotifyServiceKickoff {
+				NotifyServiceKickoff: &smproto.NotifyServiceKickOff {
+					AddrHandle: addrHandle,
+				},
+			},
+		}
+		b, err := smpack.PackSSMsg(msg)
+		if err != nil {
+			log.Errorf("pb marshal err:%v.\n", err)
+		} else {
+			log.Infof("notify service %s kick off\n", si.serviceAddr)
+			si.NotifyApp(b)
+		}
+	}
 	return nil
 }
 
@@ -331,7 +350,7 @@ func (s *Server) OnTick() {
 	}
 }
 
-func (s *Server) Stop() {
+func (s *Server) GracefulStop() {
 	s.ticker.Stop()
 	s.quit.Fire()
 	s.sess_mgr.Release()

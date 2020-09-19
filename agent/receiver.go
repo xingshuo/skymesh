@@ -165,6 +165,19 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			}
 			return
 		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_SERVICE_KICK_OFF {
+			log.Info("recv kick off msg.\n")
+			rsp := ssmsg.GetNotifyServiceKickoff()
+			msg := &KickOffEvent {
+				dstHandle: rsp.AddrHandle,
+			}
+			select {
+			case ndr.server.eventQueue <- msg:
+			default:
+				log.Error("deliver election event msg block.\n")
+			}
+			return
+		}
 	}
 	return
 }

@@ -155,7 +155,7 @@ func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshSer
 		return nil, err
 	}
 
-	svc := &skymeshService{
+	svc := &skymeshService {
 		server:   s,
 		addr:     addr,
 		service:  service,
@@ -199,6 +199,10 @@ func (s *skymeshServer) UnRegister(serviceUrl string) error {
 		leader := s.electionLeaders[svc.addr.ServiceName]
 		if leader != nil && leader.AddrHandle == svc.addr.AddrHandle {
 			delete(s.electionLeaders, svc.addr.ServiceName)
+			elis := svc.GetElectionListener()
+			if elis != nil {
+				elis.OnUnRegisterLeader()
+			}
 		}
 		for _,wSvc := range s.electionWatchers[svc.addr.ServiceName] {
 			elis := wSvc.GetElectionListener()
@@ -270,6 +274,15 @@ func (s *skymeshServer) Serve() error {
 					s.onRunForElectionResultNotify(e.candidate, e.result)
 				} else if e.event == KElectionGiveUpLeader {
 					s.onGiveUpElectionResultNotify(e.candidate, e.result)
+				}
+			case *KickOffEvent:
+				e := event.(*KickOffEvent)
+				dh := e.dstHandle
+				s.mu.Lock()
+				svc := s.handleServices[dh]
+				s.mu.Unlock()
+				if svc != nil {
+					s.UnRegister(svc.addr.ServiceUrl())
 				}
 			}
 		case msg := <-s.recvQueue: //这里要优先处理消息??

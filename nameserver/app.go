@@ -145,7 +145,7 @@ func (a *AppInfo) CheckServiceAlive() {
 
 	for i := 0; i < num; i++ {
 		h := expired[i]
-		a.server.UnRegisterService(h)
+		a.server.UnRegisterService(h, true)
 	}
 }
 
