@@ -57,6 +57,12 @@ Api
     Interface定义详见:  agent/interface.go
     功能用例详见: examples/
      
+Tips
+-----
+    1.为了消除不同版本protoc生成的pb.go不同引入的问题, 所有proto生成的pb.go统一以生成好的源码方式提供.
+    2.框架内部通信协议描述文件为proto\ssproto.proto, 协议对应pb.go文件生成方式(以windows为例):
+        protoc --proto_path=.\proto\ --go_out=.\proto\generate .\proto\*.proto
+        
 Examples
 -----
     Windows:
@@ -97,39 +103,4 @@ Examples
             Cmd: .\grpc_helloworld_client.bat
          
     Linux:
-      Build: ./build.sh
-      Dir:   ./examples/
-      Generate Shell Script: sh generate_linux_shell.sh
-      Run <helloworld> demo:
-          1.start nameserver
-            Cmd: sh nameserver.sh
-          2.start server
-            Cmd: sh helloworld_server.sh
-          3.start client
-            Cmd: sh helloworld_client.sh
-
-      Run <features/name_router> demo:
-          1.start nameserver
-            Cmd: sh nameserver.sh
-          2.start client
-            Cmd: sh features_name_router_client.sh
-          3.start server 1
-            Cmd: sh features_name_router_server.sh 1
-          4.start server 2
-            Cmd: sh features_name_router_server.sh 2
-      
-      Run <inner_service> demo:
-          1.start nameserver
-            Cmd: sh nameserver.sh
-          2.start server
-            Cmd: sh inner_service_server.sh
-          3.start client
-            Cmd: sh inner_service_client.sh
-      
-      Run <grpc/helloworld> demo:
-          1.start nameserver
-            Cmd: sh nameserver.sh
-          2.start server
-            Cmd: sh grpc_helloworld_server.sh
-          3.start client
-            Cmd: sh grpc_helloworld_client.sh
+      运行`sh generate_linux_shell.sh`生成对应的build.sh和examples/目录下的*.sh, 其余同windows
