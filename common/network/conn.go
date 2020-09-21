@@ -14,7 +14,7 @@ import (
 )
 
 type Conn struct {
-	conn            net.Conn
+	rawConn         net.Conn
 	rbuff           *bytes.Buffer
 	wbuff           *bytes.Buffer
 	receiver        Receiver
@@ -25,7 +25,7 @@ type Conn struct {
 }
 
 func (c *Conn) Init(conn net.Conn, r Receiver) error {
-	c.conn = conn
+	c.rawConn = conn
 	c.rbuff = bytes.NewBuffer(make([]byte, MIN_CONN_READ_BUFFER))
 	c.rbuff.Reset()
 	c.wbuff = bytes.NewBuffer(make([]byte, MIN_CONN_WRITE_BUFFER))
@@ -41,7 +41,7 @@ func (c *Conn) loopRead() error {
 	rsize := MIN_CONN_READ_BUFFER
 	rbuf := make([]byte, rsize)
 	for {
-		n, err := c.conn.Read(rbuf) //将网络流写进rbuf
+		n, err := c.rawConn.Read(rbuf) //将网络流写进rbuf
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func (c *Conn) loopWrite() error {
 		c.wbuff.Next(wn)
 		c.mu.Unlock()
 		if wn > 0 {
-			_, err := c.conn.Write(wbuf[:wn]) //tcp conn once time drain off
+			_, err := c.rawConn.Write(wbuf[:wn]) //tcp conn once time drain off
 			if err != nil {
 				log.Printf("tcp conn %p Write err: %v", c, err)
 				return err
@@ -136,7 +136,7 @@ func (c *Conn) Send(b []byte) {
 func (c *Conn) Close() error { //主动关闭调用
 	if c.close.Fire() {
 		c.receiver.OnClosed(c)
-		c.conn.Close()
+		c.rawConn.Close()
 		return nil
 	}
 	return fmt.Errorf("repeat close")
@@ -147,5 +147,5 @@ func (c *Conn) Done() <-chan struct{} {
 }
 
 func (c *Conn) PeerAddr() string {
-	return c.conn.RemoteAddr().String()
+	return c.rawConn.RemoteAddr().String()
 }

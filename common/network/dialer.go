@@ -25,18 +25,18 @@ type Dialer struct {
 func (d *Dialer) dial() error {
 	var (
 		err  error
-		conn net.Conn
+		rawConn net.Conn
 	)
 	if d.opts.dialTimeout > 0 {
-		conn, err = net.DialTimeout("tcp", d.address, time.Duration(d.opts.dialTimeout)*time.Second)
+		rawConn, err = net.DialTimeout("tcp", d.address, time.Duration(d.opts.dialTimeout)*time.Second)
 	} else {
-		conn, err = net.Dial("tcp", d.address)
+		rawConn, err = net.Dial("tcp", d.address)
 	}
 	if err != nil {
 		return err
 	}
 	d.conn = new(Conn)
-	err = d.conn.Init(conn, d.newReceiver())
+	err = d.conn.Init(rawConn, d.newReceiver())
 	if err != nil {
 		return err
 	}
