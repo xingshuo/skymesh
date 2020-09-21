@@ -29,14 +29,6 @@ type Listener struct {
 	service skymesh.MeshService
 }
 
-func (l *Listener) OnRegisterLeader(svc skymesh.MeshService, result int32) {
-	log.Infof("client run for leader result:%d\n", result)
-}
-
-func (l *Listener) OnUnRegisterLeader() {
-	log.Infof("client giveup leader succeed\n")
-}
-
 func (l *Listener) OnLeaderChange(leader *skymesh.Addr, event skymesh.LeaderChangeEvent) {
 	log.Infof("client [OnLeaderChange]: server %d %s\n", leader.ServiceId, event)
 	if event == skymesh.KGotElectionLeader {
@@ -58,8 +50,7 @@ func main() {
 		log.Errorf("register %s err:%v\n", svcUrl, err)
 		return
 	}
-	svc.SetElectionListener(&Listener{svc})
-	svc.WatchElection(watchSvcName)
+	svc.WatchElection(watchSvcName, &Listener{svc})
 	skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	log.Info("server quit.\n")
 }

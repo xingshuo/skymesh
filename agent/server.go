@@ -31,10 +31,8 @@ type skymeshServer struct {
 	nameGroupServices  map[string]map[uint64]*skymeshService //first floor key is ServiceName(不含实例id)
 	handleServices     map[uint64]*skymeshService
 	nameRouters        map[string]*skymeshNameRouter //skymesh的名字解析列表
+	nameElections      map[string]*skymeshElection
 
-	electionCandidates map[string]map[uint64]*skymeshService //{svcName: {handle: service}}
-	electionLeaders    map[string]*Addr //svcName: *Addr
-	electionWatchers   map[string]map[uint64]*skymeshService //{watchSvcName: {handle: service}}
 	sidecar            *skymeshSidecar
 }
 
@@ -56,9 +54,8 @@ func (s *skymeshServer) Init(conf string, appID string, doServe bool) error {
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
 	s.handleServices = make(map[uint64]*skymeshService)
 	s.nameRouters = make(map[string]*skymeshNameRouter)
-	s.electionCandidates = make(map[string]map[uint64]*skymeshService)
-	s.electionWatchers = make(map[string]map[uint64]*skymeshService)
-	s.electionLeaders = make(map[string]*Addr)
+	s.nameElections = make(map[string]*skymeshElection)
+
 	//sidecar 初始化
 	s.sidecar = &skymeshSidecar{server: s}
 	err = s.sidecar.Init()
@@ -175,36 +172,15 @@ func (s *skymeshServer) UnRegister(serviceUrl string) error {
 	svc := s.urlServices[serviceUrl]
 	s.mu.Unlock()
 	if svc != nil {
-		s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
+		s.sidecar.RegisterServiceToNameServer(svc.addr, false)
+		elec := s.getNameElection(svc.addr.ServiceName)
+		elec.unRegisterService(svc.addr)
 		svc.Stop()
 		s.mu.Lock()
 		delete(s.urlServices, serviceUrl)
 		delete(s.handleServices, svc.addr.AddrHandle)
 		delete(s.nameGroupServices[svc.addr.ServiceName], svc.addr.AddrHandle)
-		delete(s.electionCandidates[svc.addr.ServiceName], svc.addr.AddrHandle)
-		for _,v := range s.electionWatchers {
-			delete(v, svc.addr.AddrHandle)
-		}
-		leader := s.electionLeaders[svc.addr.ServiceName]
 		s.mu.Unlock()
-		if leader != nil && leader.AddrHandle == svc.addr.AddrHandle {
-			s.mu.Lock()
-			delete(s.electionLeaders, svc.addr.ServiceName)
-			s.mu.Unlock()
-			elis := svc.GetElectionListener()
-			if elis != nil {
-				elis.OnUnRegisterLeader()
-			}
-		}
-		s.mu.Lock()
-		watchers := s.electionWatchers[svc.addr.ServiceName]
-		s.mu.Unlock()
-		for _,wSvc := range watchers {
-			elis := wSvc.GetElectionListener()
-			if elis != nil {
-				elis.OnLeaderChange(leader, KLostElectionLeader)
-			}
-		}
 	}
 	return nil
 }
@@ -267,10 +243,11 @@ func (s *skymeshServer) Serve() error {
 				}
 			case *ElectionEvent:
 				e := event.(*ElectionEvent)
+				elec := s.getNameElection(e.candidate.ServiceName)
 				if e.event == KElectionRunForLeader {
-					s.onRunForElectionResultNotify(e.candidate, e.result)
+					elec.onRunForElectionResultNotify(e.candidate, e.result)
 				} else if e.event == KElectionGiveUpLeader {
-					s.onGiveUpElectionResultNotify(e.candidate, e.result)
+					elec.onGiveUpElectionResultNotify(e.candidate, e.result)
 				}
 			case *KickOffEvent:
 				e := event.(*KickOffEvent)
@@ -346,10 +323,8 @@ func (s *skymeshServer) Release() {
 	s.urlServices = make(map[string]*skymeshService)
 	s.handleServices = make(map[uint64]*skymeshService)
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
-	s.nameRouters = make(map[string]*skymeshNameRouter)
-	s.electionCandidates = make(map[string]map[uint64]*skymeshService)
-	s.electionWatchers = make(map[string]map[uint64]*skymeshService)
-	s.electionLeaders = make(map[string]*Addr)
+	s.nameRouters = make(map[string]*skymeshNameRouter) //没有逐个release资源??
+	s.nameElections = make(map[string]*skymeshElection) //没有逐个release资源??
 	s.mu.Unlock()
 	s.serviceWG.Wait()
 	log.Warning("all services stop done!.\n")
@@ -494,6 +469,13 @@ func (s *skymeshServer) getAllServices() map[uint64]*skymeshService {
 	return services
 }
 
+func (s *skymeshServer) getService(handle uint64) *skymeshService {
+	s.mu.Lock()
+	svc := s.handleServices[handle]
+	s.mu.Unlock()
+	return svc
+}
+
 func (s *skymeshServer) setAttribute(srcAddr *Addr, attrs ServiceAttr) error {
 	s.mu.Lock()
 	nr := s.nameRouters[srcAddr.ServiceName]
@@ -506,214 +488,67 @@ func (s *skymeshServer) setAttribute(srcAddr *Addr, attrs ServiceAttr) error {
 
 func (s *skymeshServer) onRegisterApp(e *RegAppEvent) {
 	for _,addr := range e.leaders {
-		s.mu.Lock()
-		s.electionLeaders[addr.ServiceName] = addr
-		//通知竞选人成功当选Leader
-		leader := s.handleServices[addr.AddrHandle]
-		s.mu.Unlock()
-		if leader != nil {
-			elis := leader.GetElectionListener()
-			if elis != nil {
-				elis.OnRegisterLeader(leader, KElectionResultOK)
-			}
-		}
-		s.mu.Lock()
-		watchers := s.electionWatchers[addr.ServiceName]
-		s.mu.Unlock()
-		//通知选举结果监听者新Leader当选
-		for _,svc := range watchers {
-			elis := svc.GetElectionListener()
-			if elis != nil {
-				elis.OnLeaderChange(addr, KGotElectionLeader)
-			}
-		}
+		elec := s.getNameElection(addr.ServiceName)
+		elec.onRegisterApp(addr)
 	}
 }
 
-func (s *skymeshServer) onRunForElectionResultNotify(candidate *Addr, result int32) {
-	if result == KElectionResultOK {
-		newLeader := candidate
-		electionName := newLeader.ServiceName
-		s.mu.Lock()
-		oldLeader := s.electionLeaders[electionName]
-		s.electionLeaders[electionName] = newLeader
-		s.mu.Unlock()
-		if oldLeader != nil {
-			if oldLeader.AddrHandle == newLeader.AddrHandle { //重复通知了??
-				return
-			}
-			//通知竞选人退出成功
-			s.mu.Lock()
-			oldSvc := s.handleServices[oldLeader.AddrHandle]
-			s.mu.Unlock()
-			if oldSvc != nil {
-				oldLis := oldSvc.GetElectionListener()
-				if oldLis != nil {
-					oldLis.OnUnRegisterLeader()
-				}
-			}
-			//通知选举结果监听者旧Leader退出
-			s.mu.Lock()
-			watchers := s.electionWatchers[electionName]
-			s.mu.Unlock()
-			for _,svc := range watchers {
-				elis := svc.GetElectionListener()
-				if elis != nil {
-					elis.OnLeaderChange(oldLeader, KLostElectionLeader)
-				}
-			}
-		}
-		//通知竞选人成功当选Leader
-		s.mu.Lock()
-		newSvc := s.handleServices[newLeader.AddrHandle]
-		s.mu.Unlock()
-		if newSvc != nil {
-			newLis := newSvc.GetElectionListener()
-			if newLis != nil {
-				newLis.OnRegisterLeader(newSvc, KElectionResultOK)
-			}
-		}
-		//通知选举结果监听者新Leader当选
-		s.mu.Lock()
-		watchers := s.electionWatchers[electionName]
-		s.mu.Unlock()
-		for _,svc := range watchers {
-			elis := svc.GetElectionListener()
-			if elis != nil {
-				elis.OnLeaderChange(newLeader, KGotElectionLeader)
-			}
-		}
-	} else {
-		//通知竞选人竞选失败
-		s.mu.Lock()
-		canSvc := s.handleServices[candidate.AddrHandle]
-		s.mu.Unlock()
-		if canSvc != nil {
-			canLis := canSvc.GetElectionListener()
-			if canLis != nil {
-				canLis.OnRegisterLeader(canSvc, result)
-			}
-		}
-	}
-}
-
-func (s *skymeshServer) onGiveUpElectionResultNotify(candidate *Addr, result int32) {
-	if result != KElectionResultOK { //目前GiveUp只有成功会通知
-		return
-	}
-	oldLeader := candidate
-	electionName := oldLeader.ServiceName
+func (s *skymeshServer) getNameElection(svcName string) *skymeshElection {
 	s.mu.Lock()
-	delete(s.electionLeaders, electionName)
-	//通知竞选人退出成功
-	oldSvc := s.handleServices[oldLeader.AddrHandle]
+	elec := s.nameElections[svcName]
+	if elec == nil {
+		elec = &skymeshElection{
+			svcName:    svcName,
+			server:     s,
+			candidates: make(map[uint64]AppElectionCandidate),
+			watchers:   make(map[uint64]AppElectionWatcher),
+		}
+		s.nameElections[svcName] = elec
+	}
 	s.mu.Unlock()
-	if oldSvc != nil {
-		oldLis := oldSvc.GetElectionListener()
-		if oldLis != nil {
-			oldLis.OnUnRegisterLeader()
-		}
-	}
-	//通知选举结果监听者旧Leader退出
-	s.mu.Lock()
-	watchers := s.electionWatchers[electionName]
-	s.mu.Unlock()
-	for _,svc := range watchers {
-		elis := svc.GetElectionListener()
-		if elis != nil {
-			elis.OnLeaderChange(oldLeader, KLostElectionLeader)
-		}
-	}
+	return elec
 }
 
-func (s *skymeshServer) runForElection(srcAddr *Addr) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	svc := s.handleServices[srcAddr.AddrHandle]
-	if svc == nil {
-		return errors.New("No exist service run for election")
+func (s *skymeshServer) runForElection(srcAddr *Addr, candidate AppElectionCandidate) error {
+	if candidate == nil {
+		return errors.New("empty app election candidate")
 	}
-	if s.electionCandidates[srcAddr.ServiceName] == nil {
-		s.electionCandidates[srcAddr.ServiceName] = make(map[uint64]*skymeshService)
+	elec := s.getNameElection(srcAddr.ServiceName)
+	err := elec.runForElection(srcAddr, candidate)
+	if err != nil {
+		return err
 	}
-	if s.electionCandidates[srcAddr.ServiceName][srcAddr.AddrHandle] != nil {
-		return errors.New("service run for election again")
-	}
-	s.electionCandidates[srcAddr.ServiceName][srcAddr.AddrHandle] = svc
 	return s.sidecar.SyncNameServerElection(srcAddr, KElectionRunForLeader)
 }
 
 func (s *skymeshServer) giveUpElection(srcAddr *Addr) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	svc := s.handleServices[srcAddr.AddrHandle]
-	if svc == nil {
-		return errors.New("No exist service give up election")
+	elec := s.getNameElection(srcAddr.ServiceName)
+	err := elec.giveUpElection(srcAddr)
+	if err != nil {
+		return err
 	}
-	if s.electionCandidates[srcAddr.ServiceName] == nil {
-		return errors.New("service not run for election")
-	}
-	if s.electionCandidates[srcAddr.ServiceName][srcAddr.AddrHandle] == nil {
-		return errors.New("service not run for election")
-	}
-	delete(s.electionCandidates[srcAddr.ServiceName], srcAddr.AddrHandle)
 	return s.sidecar.SyncNameServerElection(srcAddr, KElectionGiveUpLeader)
 }
 
-func (s *skymeshServer) watchElection(srcAddr *Addr, watchSvcName string) error {
-	s.mu.Lock()
-	svc := s.handleServices[srcAddr.AddrHandle]
-	s.mu.Unlock()
-	if svc == nil {
-		return errors.New("No exist service watch election")
+func (s *skymeshServer) watchElection(srcAddr *Addr, watchName string, watcher AppElectionWatcher) error {
+	if watcher == nil {
+		return errors.New("empty app election watcher")
 	}
-	s.mu.Lock()
-	if s.electionWatchers[watchSvcName] == nil {
-		s.electionWatchers[watchSvcName] = make(map[uint64]*skymeshService)
-	}
-	if s.electionWatchers[watchSvcName][srcAddr.AddrHandle] != nil {
-		s.mu.Unlock()
-		return errors.New("service watch election again")
-	}
-	s.electionWatchers[watchSvcName][srcAddr.AddrHandle] = svc
-	leader := s.electionLeaders[watchSvcName]
-	s.mu.Unlock()
-	elis := svc.GetElectionListener()
-	if leader != nil && elis != nil {
-		elis.OnLeaderChange(leader, KGotElectionLeader)
-	}
-	return nil
+	elec := s.getNameElection(watchName)
+	return elec.watchElection(srcAddr, watcher)
 }
 
-func (s *skymeshServer) unWatchElection(srcAddr *Addr, watchSvcName string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	svc := s.handleServices[srcAddr.AddrHandle]
-	if svc == nil {
-		return errors.New("No exist service unwatch election")
-	}
-	if s.electionWatchers[watchSvcName] == nil {
-		return errors.New("service not watch election")
-	}
-	if s.electionWatchers[watchSvcName][srcAddr.AddrHandle] == nil {
-		return errors.New("service not watch election")
-	}
-	delete(s.electionWatchers[watchSvcName], srcAddr.AddrHandle)
-	return nil
+func (s *skymeshServer) unWatchElection(srcAddr *Addr, watchName string) error {
+	elec := s.getNameElection(watchName)
+	return elec.unWatchElection(srcAddr)
 }
 
 func (s *skymeshServer) GetElectionLeader(svcName string) *Addr {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.electionLeaders[svcName]
+	elec := s.getNameElection(svcName)
+	return elec.getElectionLeader()
 }
 
 func (s *skymeshServer) isElectionLeader(srcAddr *Addr) bool {
-	s.mu.Lock()
-	leader := s.electionLeaders[srcAddr.ServiceName]
-	s.mu.Unlock()
-	if leader == nil {
-		return false
-	}
-	return leader.AddrHandle == srcAddr.AddrHandle
+	elec := s.getNameElection(srcAddr.ServiceName)
+	return elec.isElectionLeader(srcAddr)
 }

@@ -232,14 +232,44 @@ func (a *AppInfo) OnServiceGiveupElection(handle uint64) {
 		return
 	}
 	delete(a.electionCandidates[svcName], handle)
+	leaderChanged := false
 	leaderItem := a.electionLeaders[svcName]
 	if leaderItem == nil { //有候选人,没leader??
+		log.Errorf("no leader finded when %s give up election\n", si.serviceAddr)
+	} else {
+		leader := leaderItem.Value.(*ServiceInfo)
+		if leader.serviceAddr.AddrHandle == handle {
+			leaderChanged = true
+		}
+	}
+	//未发生leader变更, 仅通知发起者退出候选人队列
+	if !leaderChanged {
+		msg := &smproto.SSMsg {
+			Cmd: smproto.SSCmd_NOTIFY_SERVICE_ELECTION_RESULT,
+			Msg: &smproto.SSMsg_NotifyServiceElectionResult {
+				NotifyServiceElectionResult: &smproto.NotifyServiceElectionResult{
+					Candidate:            &smproto.ServiceInfo{
+						ServiceName: 		si.serviceAddr.ServiceName,
+						ServiceId:   		si.serviceAddr.ServiceId,
+						AddrHandle:  		si.serviceAddr.AddrHandle,
+					},
+					Event:                  skymesh.KElectionGiveUpLeader,
+					Result:                 skymesh.KElectionResultQuitCandidate,
+				},
+			},
+		}
+		b, err := smpack.PackSSMsg(msg)
+		if err != nil {
+			log.Errorf("pb marshal err:%v.\n", err)
+			return
+		}
+		lr := a.server.GetSession(si.serverAddr, a.appID)
+		if lr != nil {
+			lr.Send(b)
+		}
 		return
 	}
-	leader := leaderItem.Value.(*ServiceInfo)
-	if leader.serviceAddr.AddrHandle != handle { //未发生leader变更,不回复
-		return
-	}
+
 	delete(a.electionLeaders, svcName)
 	//重新选举
 	var newLeader *ServiceInfo = nil

@@ -46,10 +46,6 @@ func (l *Listener) OnUnRegisterLeader() {
 	log.Infof("server %d give up leader succeed\n", l.service.GetLocalAddr().ServiceId)
 }
 
-func (l *Listener) OnLeaderChange(leader *skymesh.Addr, event skymesh.LeaderChangeEvent) {
-	log.Infof("server %d recv [OnLeaderChange] msg\n", l.service.GetLocalAddr().ServiceId)
-}
-
 func main() {
 	flag.StringVar(&conf,"conf", "config.json", "greeter server config")
 	flag.Uint64Var(&svcInstId, "instid", svcInstId, "name service inst id")
@@ -65,8 +61,7 @@ func main() {
 		log.Errorf("register %s err:%v\n", svcUrl,err)
 		return
 	}
-	service.SetElectionListener(&Listener{})
-	service.RunForElection()
+	service.RunForElection(&Listener{})
 	log.Infof("server %d run for leader.\n", service.GetLocalAddr().ServiceId)
 	skymesh.WaitSignalToStop(s, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	log.Info("server quit.\n")

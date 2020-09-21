@@ -22,8 +22,9 @@ const (
 //         or {KElectionRunForLeader: KElectionResultAlreadyLeader}
 // }
 // if req is KElectionGiveUpLeader {
-// 		rsp is {KElectionGiveUpLeader: KElectionResultOK} //放弃leader成功,但未选举出新leader
-//     	   or {KElectionRunForLeader: KElectionResultOK} //放弃leader成功,并成功选举出新leader,直接通知KElectionRunForLeader,Agent自行通知KLostElectionLeader和KGotElectionLeader
+// 		rsp is {KElectionGiveUpLeader: KElectionResultOK} //自己为旧leader,放弃成功,但未选举出新leader
+//		   or {KElectionGiveUpLeader: KElectionResultQuitCandidate} //自己非leader,只退出候选人队列
+//     	   or {KElectionRunForLeader: KElectionResultOK}  //自己为旧leader,放弃成功,并成功选举出新leader, Agent自行通知KLostElectionLeader和KGotElectionLeader
 // }
 const (
 	//发起事件
@@ -33,6 +34,7 @@ const (
 	KElectionResultOK            = 0
 	KElectionResultRunForFail    = -1001
 	KElectionResultAlreadyLeader = -1002
+	KElectionResultQuitCandidate = -1003
 )
 
 type LeaderChangeEvent int

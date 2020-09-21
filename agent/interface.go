@@ -15,10 +15,14 @@ type AppRouterWatcher interface {
 }
 
 //用户注册选举事件监控器
-type AppElectionListener interface {
-	OnRegisterLeader(trans MeshService, result int32)     //RunForElection Callback
-	OnUnRegisterLeader()                                  //GiveUpElection Callback When GiveUp Leader Succeed
-	OnLeaderChange(leader *Addr, event LeaderChangeEvent) //WatchElection Callback
+type AppElectionCandidate interface {
+	OnRegisterLeader(trans MeshService, result int32)     //RunForElection Callback (Only Candidates && Leader)
+	OnUnRegisterLeader()                                  //GiveUpElection Callback When GiveUp Leader Succeed (Only Leader)
+}
+
+//用户注册选举事件监控器
+type AppElectionWatcher interface {
+	OnLeaderChange(leader *Addr, event LeaderChangeEvent) //WatchElection Callback (Only Watchers)
 }
 
 //============================以上为用户自定义接口, 以下为框架提供接口==========================
@@ -65,22 +69,19 @@ type MeshService interface {
 	GetAttribute() ServiceAttr
 
 	//当前服务实例参与ServiceName Leader选举
-	RunForElection() error
+	RunForElection(candidate AppElectionCandidate) error
 
 	//当前服务实例退出ServiceName Leader选举
 	GiveUpElection() error
 
 	//当前服务实例关注ServiceName Leader选举结果
-	WatchElection(watchSvcName string) error
+	WatchElection(watchName string, watcher AppElectionWatcher) error
 
 	//当前服务实例取消关注ServiceName Leader选举结果
-	UnWatchElection(watchSvcName string) error
+	UnWatchElection(watchName string) error
 
 	//当前服务实例是否是ServiceName选举的Leader
 	IsLeader() bool
-
-	//设置选举事件监控器,目前限定只能设置一个
-	SetElectionListener(listener AppElectionListener)
 }
 
 //对应ServiceName的名字路由管理器
