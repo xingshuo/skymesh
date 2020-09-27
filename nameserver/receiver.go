@@ -7,6 +7,7 @@ import (
 	"github.com/xingshuo/skymesh/log"
 	smpack "github.com/xingshuo/skymesh/proto"
 	smproto "github.com/xingshuo/skymesh/proto/generate"
+	"sync"
 )
 
 type lisConnReceiver struct {
@@ -14,12 +15,13 @@ type lisConnReceiver struct {
 	appid         string
 	server        *Server
 	sender        gonet.Sender
-	registered    bool
+	mu            sync.Mutex
 }
 
 func (lr *lisConnReceiver) OnConnected(s gonet.Sender) error {
+	lr.mu.Lock()
 	lr.sender = s
-	lr.registered = false
+	lr.mu.Unlock()
 	return nil
 }
 
@@ -30,6 +32,10 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 		err = proto.Unmarshal(data, &ssmsg)
 		if err != nil {
 			log.Errorf("pb unmarshal err:%v.\n", err)
+			return
+		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_NAMESERVER_AGENT_INFO {
+			lr.OnNotifiedAgentInfo(&ssmsg)
 			return
 		}
 		if ssmsg.Cmd == smproto.SSCmd_REQ_REGISTER_APP {
@@ -66,11 +72,22 @@ func (lr *lisConnReceiver) OnClosed(s gonet.Sender) error {
 }
 
 func (lr *lisConnReceiver) Send(b []byte) {
-	if lr.sender != nil {
-		lr.sender.Send(b)
+	lr.mu.Lock()
+	s := lr.sender
+	lr.mu.Unlock()
+	if s != nil {
+		s.Send(b)
 	} else {
 		log.Error("lr sender not init.")
 	}
+}
+
+func (lr *lisConnReceiver) OnNotifiedAgentInfo(ssmsg *smproto.SSMsg) {
+	log.Debug("on notified agent info\n")
+	req := ssmsg.GetNotifyNameserverAgentInfo()
+	lr.appid = req.AppID
+	lr.serverAddress = req.ServerAddr
+	lr.server.sess_mgr.AddSession(lr.serverAddress, lr.appid, lr)
 }
 
 func (lr *lisConnReceiver) OnRegisterApp(ssmsg *smproto.SSMsg) {
@@ -78,9 +95,8 @@ func (lr *lisConnReceiver) OnRegisterApp(ssmsg *smproto.SSMsg) {
 	req := ssmsg.GetRegisterAppReq()
 	lr.appid = req.AppID
 	lr.serverAddress = req.ServerAddr
-	lr.registered = true
 	lr.server.sess_mgr.AddSession(lr.serverAddress, lr.appid, lr)
-	msg := &RegAppMsg{
+	msg := &RegAppMsg {
 		appid:      lr.appid,
 		serverAddr: lr.serverAddress,
 	}
@@ -94,24 +110,6 @@ func (lr *lisConnReceiver) OnRegisterApp(ssmsg *smproto.SSMsg) {
 func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 	log.Debug("on register service\n")
 	req := ssmsg.GetRegisterServiceReq().GetServiceInfo()
-	if !lr.registered {
-		msg := &smproto.SSMsg{
-			Cmd: smproto.SSCmd_RSP_REGISTER_SERVICE,
-			Msg: &smproto.SSMsg_RegisterServiceRsp{
-				RegisterServiceRsp: &smproto.RspRegisterService{
-					AddrHandle: req.AddrHandle,
-					Result:     int32(smproto.SSError_ERR_APP_NOT_REGISTER),
-				},
-			},
-		}
-		b, err := smpack.PackSSMsg(msg)
-		if err != nil {
-			log.Errorf("pb marshal err:%v.\n", err)
-			return
-		}
-		lr.Send(b)
-		return
-	}
 	msg := &RegServiceMsg{
 		appid:      lr.appid,
 		serverAddr: lr.serverAddress,
@@ -132,10 +130,6 @@ func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 func (lr *lisConnReceiver) OnUnRegisterService(ssmsg *smproto.SSMsg) {
 	log.Debug("on un-register service\n")
 	req := ssmsg.GetUnregisterServiceReq()
-	if !lr.registered {
-		log.Errorf("app %s not register.", lr.appid)
-		return
-	}
 	msg := &UnRegServiceMsg{
 		addrHandle: req.AddrHandle,
 	}

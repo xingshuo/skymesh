@@ -17,6 +17,7 @@ enum SSCmd {
     NOTIFY_NAMESERVER_ELECTION   = 1009;
     NOTIFY_SERVICE_ELECTION_RESULT = 1010;
     NOTIFY_SERVICE_KICK_OFF      = 1011;
+    NOTIFY_NAMESERVER_AGENT_INFO = 1012;
     //agent && agent 2000 ~ 2999
     NOTIFY_SERVICE_MESSAGE  = 2000;
     REQ_PING_SERVICE        = 2001;
@@ -28,6 +29,12 @@ enum SSError {
     ERR_APP_NOT_REGISTER = -1000;
     ERR_SERVICE_REGISTER_AGAIN = -1001;
     ERR_APP_SESSION_LOST = -1002;
+}
+
+//agent与nameserver建立连接后同步agent信息
+message NotifyNameServerAgentInfo {
+    string ServerAddr = 1; //mesh server address: ip:port
+    string AppID      = 2; //应用ID
 }
 
 //注册App相关
@@ -138,6 +145,7 @@ message SSMsg {
       NotifyNameServerElection  notify_nameserver_election = 109;
       NotifyServiceElectionResult   notify_service_election_result = 110;
       NotifyServiceKickOff   notify_service_kickoff        = 111;
+      NotifyNameServerAgentInfo notify_nameserver_agent_info = 112;
       NotifyServiceMessage   notify_service_message        = 200;
       ReqServicePing     service_ping_req                  = 201;
       RspServicePing     service_ping_rsp                  = 202;

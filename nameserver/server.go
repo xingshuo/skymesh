@@ -244,6 +244,25 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 	}
 	app := s.apps[appID]
 	if app == nil {
+		lr := s.sess_mgr.GetSession(serverAddr, appID)
+		if lr != nil {
+			msg := &smproto.SSMsg{
+				Cmd: smproto.SSCmd_RSP_REGISTER_SERVICE,
+				Msg: &smproto.SSMsg_RegisterServiceRsp{
+					RegisterServiceRsp: &smproto.RspRegisterService{
+						AddrHandle: serviceAddr.AddrHandle,
+						Result:     int32(smproto.SSError_ERR_APP_NOT_REGISTER),
+					},
+				},
+			}
+			b, err := smpack.PackSSMsg(msg)
+			if err != nil {
+				log.Errorf("pb marshal err:%v.\n", err)
+			} else {
+				lr.Send(b)
+			}
+
+		}
 		return fmt.Errorf("register not exist appID %s.", appID)
 	}
 	si = &ServiceInfo{

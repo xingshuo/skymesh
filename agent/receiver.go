@@ -69,6 +69,21 @@ type NSDialerReceiver struct {
 }
 
 func (ndr *NSDialerReceiver) OnConnected(s gonet.Sender) error {
+	msg := &smproto.SSMsg {
+		Cmd: smproto.SSCmd_NOTIFY_NAMESERVER_AGENT_INFO,
+		Msg: &smproto.SSMsg_NotifyNameserverAgentInfo {
+			NotifyNameserverAgentInfo: &smproto.NotifyNameServerAgentInfo{
+				ServerAddr: ndr.server.cfg.MeshserverAddress,
+				AppID:      ndr.server.appID,
+			},
+		},
+	}
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
+	s.Send(b)
 	return nil
 }
 

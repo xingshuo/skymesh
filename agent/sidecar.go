@@ -105,7 +105,11 @@ func (sc *skymeshSidecar) Init() error {
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err
 	}
-	d.Send(b)
+	err = d.Send(b)
+	if err != nil {
+		log.Errorf("dialer send err:%v\n", err)
+		return err
+	}
 
 	//监听接收服务消息端口
 	newListenerReceiver := func() gonet.Receiver {
@@ -159,7 +163,10 @@ func (sc *skymeshSidecar) keepalive() {
 			log.Errorf("keepalive %s pb marshal err:%v.\n", svc.addr, err)
 			continue
 		}
-		sc.nameserverDialer.Send(data)
+		err = sc.nameserverDialer.Send(data)
+		if err != nil {
+			log.Errorf("dialer send err:%v\n", err)
+		}
 	}
 }
 
@@ -188,7 +195,10 @@ func (sc *skymeshSidecar) healthCheck() {
 			log.Errorf("health check %s pb marshal err:%v.\n", rmSvc.serviceAddr, err)
 			continue
 		}
-		d.Send(data)
+		err = d.Send(data)
+		if err != nil {
+			log.Errorf("dialer send err:%v\n", err)
+		}
 	}
 }
 
@@ -212,7 +222,10 @@ func (sc *skymeshSidecar) sendPingAck(srcHandle uint64, ackSeq uint64, dstServer
 		log.Errorf("sendPingAck %s %d %d pb marshal err:%v.\n", dstServerAddr, srcHandle, ackSeq, err)
 		return
 	}
-	d.Send(data)
+	err = d.Send(data)
+	if err != nil {
+		log.Errorf("dialer send err:%v\n", err)
+	}
 }
 
 func (sc *skymeshSidecar) recvPingAck(srcHandle uint64, ackSeq uint64) {
@@ -327,8 +340,8 @@ func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, isRegis
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err
 	}
-	sc.nameserverDialer.Send(b)
-	return nil
+
+	return sc.nameserverDialer.Send(b)
 }
 
 func (sc *skymeshSidecar) SyncServiceAttrToNameServer(serviceAddr *Addr, attrs ServiceAttr) error {
@@ -351,8 +364,8 @@ func (sc *skymeshSidecar) SyncServiceAttrToNameServer(serviceAddr *Addr, attrs S
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err
 	}
-	sc.nameserverDialer.Send(b)
-	return nil
+
+	return sc.nameserverDialer.Send(b)
 }
 
 func (sc *skymeshSidecar) SyncNameServerElection(serviceAddr *Addr, event int32) error {
@@ -371,8 +384,8 @@ func (sc *skymeshSidecar) SyncNameServerElection(serviceAddr *Addr, event int32)
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err
 	}
-	sc.nameserverDialer.Send(b)
-	return nil
+
+	return sc.nameserverDialer.Send(b)
 }
 
 func (sc *skymeshSidecar) SendAllRemote(srcAddr *Addr, serviceName string, b []byte) {
@@ -430,8 +443,7 @@ func (sc *skymeshSidecar) SendRemote(srcAddr *Addr, dstHandle uint64, b []byte) 
 		log.Errorf("pb marshal err:%v.\n", err)
 		return err
 	}
-	d.Send(data)
-	return nil
+	return d.Send(data)
 }
 
 func (sc *skymeshSidecar) getRemoteServiceInsts(svcName string) (handles []uint64, insts []uint64) {
