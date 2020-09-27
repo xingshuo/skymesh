@@ -33,6 +33,7 @@ func (c *Conn) Init(conn net.Conn, r Receiver) error {
 	c.receiver = r
 	c.waiting = make(chan struct{}, 1)
 	c.close = smsync.NewEvent("gonet.Conn.close")
+	c.consumerWaiting = false
 	err := r.OnConnected(c)
 	return err
 }

@@ -18,7 +18,6 @@ Skymesh
         *skymeshServer锁粒度检查 && 死锁check
         *节点上下线流程完善(防止数据比上线事件先到之类)
         *节点Event和Data使用统一recv chan
-        *gonet模块重构(copy on write)
         *nameserver改成无状态集群 + db
 
 Summary

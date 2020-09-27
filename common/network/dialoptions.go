@@ -4,8 +4,7 @@
 package gonet
 
 type dialOptions struct {
-	maxRetryTimes int //connect失败,最大重试次数
-	retryInterval int //connect重试间隔
+	retryInterval int //connect重试间隔, 为0时不自动重试
 	dialTimeout   int //connect的超时时长,秒级
 }
 
@@ -27,12 +26,6 @@ func newFuncDialOption(f func(*dialOptions)) *funcDialOption {
 	}
 }
 
-func WithMaxRetryTimes(n int) DialOption {
-	return newFuncDialOption(func(do *dialOptions) {
-		do.maxRetryTimes = n
-	})
-}
-
 func WithRetryInterval(n int) DialOption {
 	return newFuncDialOption(func(do *dialOptions) {
 		do.retryInterval = n
@@ -47,7 +40,6 @@ func WithDialTimeout(n int) DialOption {
 
 func defaultDialOptions() dialOptions {
 	return dialOptions{
-		maxRetryTimes: 10,
 		retryInterval: 3,
 		dialTimeout:   5,
 	}

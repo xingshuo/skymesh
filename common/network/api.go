@@ -15,6 +15,8 @@ func NewDialer(address string, newReceiver func() Receiver, opts ...DialOption) 
 		address:     address,
 		quit:        smsync.NewEvent("gonet.Dialer.quit"),
 		newReceiver: newReceiver,
+		state:       Idle,
+		notifys:     make(map[chan error]bool),
 	}
 	//处理参数
 	for _, opt := range opts {
