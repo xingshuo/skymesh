@@ -16,6 +16,7 @@ type AppInfo struct { //对应一个游戏或应用
 	svclruList *list.List
 	electionCandidates map[string]map[uint64]*list.Element //{svcName: {handle: svcListItem}}
 	electionLeaders    map[string]*list.Element //{svcName: svcListItem}
+	nameRouters        map[string]*NameRouter  //{svcName: *NameRouter}
 }
 
 func (a *AppInfo) Init(appid string) {
@@ -24,10 +25,20 @@ func (a *AppInfo) Init(appid string) {
 	a.electionCandidates = make(map[string]map[uint64]*list.Element)
 	a.electionLeaders = make(map[string]*list.Element)
 	a.svclruList = list.New() //lru链表优化服务活跃检查时间复杂度
+	a.nameRouters = make(map[string]*NameRouter)
 }
 
 func (a *AppInfo) AddItem(si *ServiceInfo) {
 	a.services[si.serviceAddr.AddrHandle] = a.svclruList.PushBack(si)
+}
+
+func (a *AppInfo) GetItem(handle uint64) *ServiceInfo {
+	siItem := a.services[handle]
+	if siItem != nil {
+		si := siItem.Value.(*ServiceInfo)
+		return si
+	}
+	return nil
 }
 
 func (a *AppInfo) RemoveItem(handle uint64) {
@@ -38,11 +49,70 @@ func (a *AppInfo) RemoveItem(handle uint64) {
 	}
 }
 
-func (a *AppInfo) Broadcast(excludeSI *ServiceInfo, b []byte) {
+func (a *AppInfo) AddNameRouter(serverAddr, watchSvcName string) error {
+	nr := a.nameRouters[watchSvcName]
+	if nr == nil {
+		nr = &NameRouter {
+			svcName:  watchSvcName,
+			routers:  make(map[AppSession]NameRouterState),
+			confirmDeadline: 0,
+			onlineSvcHandle: skymesh.INVALID_SERVICE_HANDLE,
+		}
+		a.nameRouters[watchSvcName] = nr
+	}
+	return nr.AddItem(a, serverAddr)
+}
+
+func (a *AppInfo) Start2StageConfirm(si *ServiceInfo) {
+	watchSvcName := si.serviceAddr.ServiceName
+	nr := a.nameRouters[watchSvcName]
+	if nr != nil {
+		nr.StartConfirm(a, si)
+	} else {
+		a.NotifyConfirmResult(si.serviceAddr.AddrHandle, smproto.SSError_OK)
+	}
+}
+
+func (a *AppInfo) checkConfirmExpired() {
+	for _,nr := range a.nameRouters {
+		nr.CheckExpired(a)
+	}
+}
+
+func (a *AppInfo) NotifyConfirmResult(handle uint64, result smproto.SSError) {
+	si := a.GetItem(handle)
+	if si == nil {
+		return
+	}
+	//通知Online实例Agent
+	msg := &smproto.SSMsg {
+		Cmd: smproto.SSCmd_RSP_REGISTER_SERVICE,
+		Msg: &smproto.SSMsg_RegisterServiceRsp {
+			RegisterServiceRsp: &smproto.RspRegisterService {
+				AddrHandle: si.serviceAddr.AddrHandle,
+				Result:     int32(result),
+			},
+		},
+	}
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return
+	} else {
+		log.Infof("notify service %s register rsp\n", si.serviceAddr)
+		si.NotifyApp(b)
+	}
+	//广播实例上线消息
+	if result == smproto.SSError_OK {
+		a.BroadcastOnlineToOthers(si, true)
+	}
+}
+
+func (a *AppInfo) Broadcast(excludeSi *ServiceInfo, b []byte) {
 	notifys := make(map[string]bool)
 	for _, siItem := range a.services {
 		service := siItem.Value.(*ServiceInfo)
-		if excludeSI != nil && service.serverAddr == excludeSI.serverAddr { //只通知其他进程App
+		if excludeSi != nil && service.serverAddr == excludeSi.serverAddr { //只通知其他进程App
 			continue
 		}
 		notifys[service.serverAddr] = true
@@ -78,7 +148,7 @@ func (a *AppInfo) BroadcastSyncServiceAttr(si *ServiceInfo, attrs []byte) {
 }
 
 func (a *AppInfo) BroadcastOnlineToOthers(si *ServiceInfo, is_online bool) {
-	msg := &smproto.SSMsg{
+	msg := &smproto.SSMsg {
 		Cmd: smproto.SSCmd_NOTIFY_SERVICE_ONLINE,
 		Msg: &smproto.SSMsg_NotifyServiceOnline{
 			NotifyServiceOnline: &smproto.NotifyServiceOnline{
@@ -89,6 +159,9 @@ func (a *AppInfo) BroadcastOnlineToOthers(si *ServiceInfo, is_online bool) {
 					AddrHandle:  si.serviceAddr.AddrHandle,
 				},
 				IsOnline: is_online,
+				Options:  &smproto.ServiceOptions {
+					ConsistentHashKey : si.serviceOpts.ConsistentHashKey,
+				},
 			},
 		},
 	}
@@ -118,6 +191,9 @@ func (a *AppInfo) NotifyOthersOnlineToSelf(serverAddr string, lr *lisConnReceive
 						AddrHandle:  service.serviceAddr.AddrHandle,
 					},
 					IsOnline: true,
+					Options:  &smproto.ServiceOptions {
+						ConsistentHashKey : service.serviceOpts.ConsistentHashKey,
+					},
 				},
 			},
 		}
@@ -130,7 +206,7 @@ func (a *AppInfo) NotifyOthersOnlineToSelf(serverAddr string, lr *lisConnReceive
 	}
 }
 
-func (a *AppInfo) CheckServiceAlive() {
+func (a *AppInfo) checkServiceAlive() {
 	now := time.Now().Unix()
 	var expired [CheckAliveMaxNumPerTickPerApp]uint64
 	var num int
@@ -148,6 +224,11 @@ func (a *AppInfo) CheckServiceAlive() {
 		h := expired[i]
 		a.server.UnRegisterService(h, true)
 	}
+}
+
+func (a *AppInfo) OnTick() {
+	a.checkServiceAlive()
+	a.checkConfirmExpired()
 }
 
 func (a *AppInfo) OnServiceHeartbeat(handle uint64) {
@@ -331,5 +412,6 @@ func (a *AppInfo) Release() {
 	a.electionCandidates = make(map[string]map[uint64]*list.Element)
 	a.electionLeaders = make(map[string]*list.Element)
 	a.svclruList = list.New()
+	a.nameRouters = make(map[string]*NameRouter)
 	a.server = nil
 }

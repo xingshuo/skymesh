@@ -17,6 +17,7 @@ type remoteService struct { //其他skymeshServer服务实例的简要信息
 	lastAckPingSeq uint64  //上一次收到回复的Ping包编号
 	mu             sync.RWMutex
 	Attributes     ServiceAttr //远端服务属性同步缓存
+	opts           ServiceOptions
 }
 
 func (rs *remoteService) onSendPing() {
@@ -84,15 +85,16 @@ func (rs *remoteService) GetAttribute() ServiceAttr {
 }
 
 type skymeshService struct {
-	server       *skymeshServer
-	addr         *Addr
-	service      AppService
-	quit         *smsync.Event
-	done         *smsync.Event
-	msgQueue     chan Message
-	mu           sync.RWMutex
-	attrs        ServiceAttr
-	regNotify    chan error
+	server    *skymeshServer
+	addr      *Addr
+	service   AppService
+	quit      *smsync.Event
+	done      *smsync.Event
+	msgQueue  chan Message
+	mu        sync.RWMutex
+	attrs     ServiceAttr
+	regNotify chan error
+	opts      ServiceOptions
 }
 
 func (s *skymeshService) SendBySvcNameAndInstID(serviceName string, instID uint64, msg []byte) error {

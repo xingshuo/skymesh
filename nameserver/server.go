@@ -20,6 +20,10 @@ type AppSession struct {
 	appid         string
 }
 
+func (as AppSession) String() string {
+	return fmt.Sprintf("%s::%s", as.appid, as.serverAddress)
+}
+
 type SessionMgr struct {
 	mu       sync.Mutex
 	sessions map[AppSession]*lisConnReceiver
@@ -59,6 +63,11 @@ type ServiceInfo struct {
 	serviceAddr *skymesh.Addr
 	sessMgr     *SessionMgr
 	lastRecvHbTime int64 //秒级
+	serviceOpts *skymesh.ServiceOptions
+}
+
+func (si *ServiceInfo) IsStateful() bool { //实例上线需要所有NameRouter进行2段确认
+	return skymesh.GetServiceStateType(si.serviceOpts) == skymesh.KStatefulService
 }
 
 func (si *ServiceInfo) NotifyApp(b []byte) {
@@ -164,7 +173,8 @@ func (s *Server) onMessage(msg interface{}) error {
 		appID := msg.(*RegServiceMsg).appid
 		svrAddr := msg.(*RegServiceMsg).serverAddr
 		svcAddr := msg.(*RegServiceMsg).serviceAddr
-		return s.RegisterService(appID, svrAddr, svcAddr)
+		svcOpts := msg.(*RegServiceMsg).serviceOpts
+		return s.RegisterService(appID, svrAddr, svcAddr, svcOpts)
 	case *UnRegServiceMsg:
 		h := msg.(*UnRegServiceMsg).addrHandle
 		return s.UnRegisterService(h, false)
@@ -182,6 +192,11 @@ func (s *Server) onMessage(msg interface{}) error {
 		h := msg.(*ServiceElection).addrHandle
 		event := msg.(*ServiceElection).event
 		return s.OnServiceElectionEvent(h, event)
+	case *RegisterNameRouter:
+		svrAddr := msg.(*RegisterNameRouter).serverAddr
+		appID := msg.(*RegisterNameRouter).appid
+		watchSvcName := msg.(*RegisterNameRouter).watchSvcName
+		return s.OnRegisterNameRouter(appID, svrAddr, watchSvcName)
 	default:
 		return fmt.Errorf("unknow msg type")
 	}
@@ -237,7 +252,7 @@ func (s *Server) RegisterApp(serverAddr, appID string) error {
 	return nil
 }
 
-func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *skymesh.Addr) error {
+func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *skymesh.Addr, serviceOpts *skymesh.ServiceOptions) error {
 	si := s.handleServices[serviceAddr.AddrHandle]
 	if si != nil {
 		return fmt.Errorf("re-register service %s", serviceAddr)
@@ -271,27 +286,15 @@ func (s *Server) RegisterService(appID string, serverAddr string, serviceAddr *s
 		serviceAddr: serviceAddr,
 		sessMgr:     s.sess_mgr,
 		lastRecvHbTime: time.Now().Unix(),
+		serviceOpts: serviceOpts,
 	}
 	s.handleServices[serviceAddr.AddrHandle] = si
 	app.AddItem(si)
-	//通知Sidecar
-	msg := &smproto.SSMsg{
-		Cmd: smproto.SSCmd_RSP_REGISTER_SERVICE,
-		Msg: &smproto.SSMsg_RegisterServiceRsp{
-			RegisterServiceRsp: &smproto.RspRegisterService{
-				AddrHandle: serviceAddr.AddrHandle,
-				Result:     int32(smproto.SSError_OK),
-			},
-		},
-	}
-	b, err := smpack.PackSSMsg(msg)
-	if err != nil {
-		log.Errorf("pb marshal err:%v.\n", err)
+	if si.IsStateful() {
+		app.Start2StageConfirm(si)
 	} else {
-		log.Infof("notify service %s register rsp\n", serviceAddr)
-		si.NotifyApp(b)
+		app.NotifyConfirmResult(serviceAddr.AddrHandle, smproto.SSError_OK)
 	}
-	app.BroadcastOnlineToOthers(si, true)
 	return nil
 }
 
@@ -373,9 +376,17 @@ func (s *Server) OnServiceElectionEvent(addrHandle uint64, event int32) error {
 	return nil
 }
 
+func (s *Server) OnRegisterNameRouter(appID, serverAddr, watchSvcName string) error {
+	app := s.apps[appID]
+	if app == nil {
+		return fmt.Errorf("register not exist namerouter appID %s.", appID)
+	}
+	return app.AddNameRouter(serverAddr, watchSvcName)
+}
+
 func (s *Server) OnTick() {
 	for _,app := range s.apps {
-		app.CheckServiceAlive()
+		app.OnTick()
 	}
 }
 

@@ -62,6 +62,10 @@ func (lr *lisConnReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, err
 			lr.OnServiceElection(&ssmsg)
 			return
 		}
+		if ssmsg.Cmd == smproto.SSCmd_NOTIFY_NAMESERVER_REGISTER_ROUTER {
+			lr.OnRegisterRouter(&ssmsg)
+			return
+		}
 	}
 	return
 }
@@ -109,15 +113,17 @@ func (lr *lisConnReceiver) OnRegisterApp(ssmsg *smproto.SSMsg) {
 
 func (lr *lisConnReceiver) OnRegisterService(ssmsg *smproto.SSMsg) {
 	log.Debug("on register service\n")
-	req := ssmsg.GetRegisterServiceReq().GetServiceInfo()
+	info := ssmsg.GetRegisterServiceReq().GetServiceInfo()
+	opts := ssmsg.GetRegisterServiceReq().GetOptions()
 	msg := &RegServiceMsg{
 		appid:      lr.appid,
 		serverAddr: lr.serverAddress,
 		serviceAddr: &skymesh.Addr{
-			ServiceName: req.ServiceName,
-			ServiceId:   req.ServiceId,
-			AddrHandle:  req.AddrHandle,
+			ServiceName: info.ServiceName,
+			ServiceId:   info.ServiceId,
+			AddrHandle:  info.AddrHandle,
 		},
+		serviceOpts: &skymesh.ServiceOptions{opts.ConsistentHashKey},
 	}
 	log.Debugf("register service %s\n", msg.serviceAddr)
 	select {
@@ -175,5 +181,19 @@ func (lr *lisConnReceiver) OnServiceElection(ssmsg *smproto.SSMsg) {
 	case lr.server.msg_queue <- msg:
 	default:
 		log.Error("deliver service election msg block.\n")
+	}
+}
+
+func (lr *lisConnReceiver) OnRegisterRouter(ssmsg *smproto.SSMsg) {
+	notify := ssmsg.GetNotifyNameserverRegisterRouter()
+	msg := &RegisterNameRouter {
+		serverAddr: lr.serverAddress,
+		appid: lr.appid,
+		watchSvcName: notify.ServiceName,
+	}
+	select {
+	case lr.server.msg_queue <- msg:
+	default:
+		log.Error("deliver register router msg block.\n")
 	}
 }

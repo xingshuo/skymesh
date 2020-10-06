@@ -1,6 +1,14 @@
 package skymesh
 
-import "sync"
+import (
+	"sort"
+	"sync"
+)
+
+type ConsistentHashInfo struct {
+	key    uint64
+	instID uint64
+}
 
 type skymeshNameRouter struct {
 	server    *skymeshServer
@@ -9,8 +17,11 @@ type skymeshNameRouter struct {
 	instAddrs map[uint64]*Addr          //后续考虑改成sync.Map
 	watchers  map[AppRouterWatcher]bool //后续考虑改成sync.Map
 	instAttrs map[uint64]ServiceAttr
+	instOpts  map[uint64]ServiceOptions
 	instIDs   []uint64
+	ConsHashList []ConsistentHashInfo
 	loopSeq   int
+	state     NameRouterState
 }
 
 func (sr *skymeshNameRouter) Watch(w AppRouterWatcher) {
@@ -38,6 +49,13 @@ func (sr *skymeshNameRouter) AddInstsAddr(instID uint64, instAddr *Addr) {
 	sr.mu.Unlock()
 }
 
+func (sr *skymeshNameRouter) AddInstsOpts(instID uint64, opts ServiceOptions) {
+	sr.mu.Lock()
+	sr.instOpts[instID] = opts
+	sr.refreshConsHashList()
+	sr.mu.Unlock()
+}
+
 func (sr *skymeshNameRouter) GetInstsAddr() map[uint64]*Addr {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
@@ -48,7 +66,18 @@ func (sr *skymeshNameRouter) GetInstsAddr() map[uint64]*Addr {
 	return copy
 }
 
-func (sr *skymeshNameRouter) notifyInstsChange(isOnline bool, handle uint64, instID uint64) {
+func (sr *skymeshNameRouter) refreshConsHashList() {
+	var list []ConsistentHashInfo
+	for instID,opts := range sr.instOpts {
+		list = append(list, ConsistentHashInfo{opts.ConsistentHashKey, instID})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].key < list[j].key
+	})
+	sr.ConsHashList = list
+}
+
+func (sr *skymeshNameRouter) notifyInstsChange(isOnline bool, handle uint64, instID uint64, opts ServiceOptions) {
 	if isOnline {
 		sr.mu.Lock()
 		instAddr := sr.instAddrs[instID]
@@ -59,6 +88,9 @@ func (sr *skymeshNameRouter) notifyInstsChange(isOnline bool, handle uint64, ins
 		instAddr = &Addr{ServiceName: sr.svcName, ServiceId: instID, AddrHandle: handle}
 		sr.instAddrs[instID] = instAddr
 		sr.instIDs = append(sr.instIDs, instID)
+		sr.instOpts[instID] = opts
+		sr.refreshConsHashList()
+		sr.state = NameRouterReady
 		var wcopy []AppRouterWatcher
 		for w := range sr.watchers {
 			wcopy = append(wcopy, w)
@@ -75,6 +107,9 @@ func (sr *skymeshNameRouter) notifyInstsChange(isOnline bool, handle uint64, ins
 			return
 		}
 		delete(sr.instAddrs, instID)
+		delete(sr.instAttrs, instID)
+		delete(sr.instOpts, instID)
+		sr.refreshConsHashList()
 		for idx,v := range sr.instIDs {
 			if v == instID {
 				sr.instIDs = append(sr.instIDs[:idx], sr.instIDs[idx+1:]...)
@@ -127,15 +162,41 @@ func (sr *skymeshNameRouter) GetInstsAttr() map[uint64]ServiceAttr {
 	return copy
 }
 
+func (sr *skymeshNameRouter) setState(s NameRouterState) {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	sr.state = s
+}
+
+func (sr *skymeshNameRouter) SelectRouterByConsistentHash(key uint64) uint64 {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	if len(sr.instIDs) == 0 || sr.state != NameRouterReady || len(sr.ConsHashList) == 0 {
+		return INVALID_ROUTER_ID
+	}
+	shareIdx := 0 //超过最大ConsistentHashkey,也分配到索引为0的实例
+	for idx,info := range sr.ConsHashList {
+		if key < info.key {
+			shareIdx = idx
+			break
+		}
+	}
+	return sr.ConsHashList[shareIdx].instID
+}
+
 func (sr *skymeshNameRouter) SelectRouterByModHash(key uint64) uint64 {
-	if len(sr.instIDs) == 0 {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	if len(sr.instIDs) == 0 || sr.state != NameRouterReady {
 		return INVALID_ROUTER_ID
 	}
 	return sr.instIDs[key % uint64(len(sr.instIDs))]
 }
 
 func (sr *skymeshNameRouter) SelectRouterByLoop() uint64 {
-	if len(sr.instIDs) == 0 {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	if len(sr.instIDs) == 0 || sr.state != NameRouterReady {
 		return INVALID_ROUTER_ID
 	}
 	seq := sr.loopSeq
@@ -144,7 +205,9 @@ func (sr *skymeshNameRouter) SelectRouterByLoop() uint64 {
 }
 
 func (sr *skymeshNameRouter) SelectRouterByQuality() uint64 {
-	if len(sr.instIDs) == 0 {
+	sr.mu.Lock()
+	defer sr.mu.Unlock()
+	if len(sr.instIDs) == 0 || sr.state != NameRouterReady {
 		return INVALID_ROUTER_ID
 	}
 	dstAddr := sr.server.GetBestQualityService(sr.svcName)

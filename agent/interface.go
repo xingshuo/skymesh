@@ -30,7 +30,7 @@ type AppElectionWatcher interface {
 //Service Mesh通信层Cluster节点上层会话(管理一个Sidecar和下属所有Service)
 type MeshServer interface {
 	//注册服务, 同步阻塞
-	Register(serviceUrl string, service AppService) (MeshService, error)
+	Register(serviceUrl string, service AppService, opts ...RegisterOption) (MeshService, error)
 
 	//注销服务, 非阻塞
 	UnRegister(serviceUrl string) error

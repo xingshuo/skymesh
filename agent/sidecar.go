@@ -63,6 +63,8 @@ type skymeshSidecar struct {
 	remoteServices      map[uint64]*remoteService
 	remoteUrlServices   map[string]*remoteService
 	remoteGroupServices map[string]map[uint64]*remoteService //ServiceName:{ handle: remoteService}
+	nameStates          map[string]ServiceStateType
+
 	healthTicker        *time.Ticker
 	keepaliveTicker     *time.Ticker
 }
@@ -71,6 +73,8 @@ func (sc *skymeshSidecar) Init() error {
 	sc.remoteServices = make(map[uint64]*remoteService)
 	sc.remoteUrlServices = make(map[string]*remoteService)
 	sc.remoteGroupServices = make(map[string]map[uint64]*remoteService)
+	sc.nameStates = make(map[string]ServiceStateType)
+
 	sc.agentDialers = new(AgentDialerMgr)
 	sc.agentDialers.Init()
 
@@ -253,8 +257,10 @@ func (sc *skymeshSidecar) notifyServiceOnline(e *OnlineEvent) {
 		rmsvc = &remoteService{
 			serverAddr:  e.serverAddr,
 			serviceAddr: e.serviceAddr,
+			opts: e.serviceOpts,
 		}
 		sc.remoteServices[rh] = rmsvc
+		sc.nameStates[rsname] = GetServiceStateType(&e.serviceOpts)
 
 		url := SkymeshAddr2Url(e.serviceAddr, false)
 		sc.remoteUrlServices[url] = rmsvc
@@ -309,30 +315,21 @@ func (sc *skymeshSidecar) GetBestQualityService(serviceName string) *remoteServi
 	return bestSvc
 }
 
-func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, isRegister bool) error {
-	var msg *smproto.SSMsg
-	if isRegister {
-		msg = &smproto.SSMsg{
-			Cmd: smproto.SSCmd_REQ_REGISTER_SERVICE,
-			Msg: &smproto.SSMsg_RegisterServiceReq{
-				RegisterServiceReq: &smproto.ReqRegisterService{
-					ServiceInfo: &smproto.ServiceInfo{
-						ServiceName: serviceAddr.ServiceName,
-						ServiceId:   serviceAddr.ServiceId,
-						AddrHandle:  serviceAddr.AddrHandle,
-					},
+func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, opts *ServiceOptions) error {
+	msg := &smproto.SSMsg {
+		Cmd: smproto.SSCmd_REQ_REGISTER_SERVICE,
+		Msg: &smproto.SSMsg_RegisterServiceReq{
+			RegisterServiceReq: &smproto.ReqRegisterService{
+				ServiceInfo: &smproto.ServiceInfo{
+					ServiceName: serviceAddr.ServiceName,
+					ServiceId:   serviceAddr.ServiceId,
+					AddrHandle:  serviceAddr.AddrHandle,
+				},
+				Options: &smproto.ServiceOptions{
+					ConsistentHashKey:    opts.ConsistentHashKey,
 				},
 			},
-		}
-	} else { //UnRegister
-		msg = &smproto.SSMsg{
-			Cmd: smproto.SSCmd_REQ_UNREGISTER_SERVICE,
-			Msg: &smproto.SSMsg_UnregisterServiceReq{
-				UnregisterServiceReq: &smproto.ReqUnRegisterService{
-					AddrHandle: serviceAddr.AddrHandle,
-				},
-			},
-		}
+		},
 	}
 
 	b, err := smpack.PackSSMsg(msg)
@@ -341,6 +338,41 @@ func (sc *skymeshSidecar) RegisterServiceToNameServer(serviceAddr *Addr, isRegis
 		return err
 	}
 
+	return sc.nameserverDialer.Send(b)
+}
+
+func (sc *skymeshSidecar) UnRegisterServiceToNameServer(serviceAddr *Addr) error {
+	msg := &smproto.SSMsg{
+		Cmd: smproto.SSCmd_REQ_UNREGISTER_SERVICE,
+		Msg: &smproto.SSMsg_UnregisterServiceReq{
+			UnregisterServiceReq: &smproto.ReqUnRegisterService{
+				AddrHandle: serviceAddr.AddrHandle,
+			},
+		},
+	}
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
+
+	return sc.nameserverDialer.Send(b)
+}
+
+func (sc *skymeshSidecar) RegisterRouterToNameServer(serviceName string) error {
+	msg := &smproto.SSMsg{
+		Cmd: smproto.SSCmd_NOTIFY_NAMESERVER_REGISTER_ROUTER,
+		Msg: &smproto.SSMsg_NotifyNameserverRegisterRouter {
+			NotifyNameserverRegisterRouter: &smproto.NotifyNameServerRegisterRouter {
+				ServiceName: serviceName,
+			},
+		},
+	}
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
 	return sc.nameserverDialer.Send(b)
 }
 
@@ -375,6 +407,26 @@ func (sc *skymeshSidecar) SyncNameServerElection(serviceAddr *Addr, event int32)
 			NotifyNameserverElection: &smproto.NotifyNameServerElection{
 				SrcHandle:            serviceAddr.AddrHandle,
 				Event:                event,
+			},
+		},
+	}
+
+	b, err := smpack.PackSSMsg(msg)
+	if err != nil {
+		log.Errorf("pb marshal err:%v.\n", err)
+		return err
+	}
+
+	return sc.nameserverDialer.Send(b)
+}
+
+func (sc *skymeshSidecar) ReplyNameServerRouterUpdate(svcName string, result NameRouterCmd) error {
+	msg := &smproto.SSMsg {
+		Cmd: smproto.SSCmd_RSP_NAMESERVER_ROUTER_UPDATE,
+		Msg: &smproto.SSMsg_NameserverRouterUpdateRsp {
+			NameserverRouterUpdateRsp: &smproto.RspNameServerRouterUpdate {
+				Result:        int32(result),
+				ServiceName:   svcName,
 			},
 		},
 	}
@@ -468,10 +520,19 @@ func (sc *skymeshSidecar) Release() {
 	sc.remoteServices = make(map[uint64]*remoteService)
 	sc.remoteUrlServices = make(map[string]*remoteService)
 	sc.remoteGroupServices = make(map[string]map[uint64]*remoteService)
+	sc.nameStates = make(map[string]ServiceStateType)
 	sc.mu.Unlock()
 	sc.keepaliveTicker.Stop()
 	sc.healthTicker.Stop()
 	sc.nameserverDialer.Shutdown()
 	sc.meshserverListener.GracefulStop()
 	sc.agentDialers.Release()
+}
+
+func (sc *skymeshSidecar) getServiceStateType(svcName string) ServiceStateType {
+	st,ok := sc.nameStates[svcName]
+	if ok {
+		return st
+	}
+	return KUnknowStateService
 }

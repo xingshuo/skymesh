@@ -18,6 +18,12 @@ enum SSCmd {
     NOTIFY_SERVICE_ELECTION_RESULT = 1010;
     NOTIFY_SERVICE_KICK_OFF      = 1011;
     NOTIFY_NAMESERVER_AGENT_INFO = 1012;
+    NOTIFY_NAMESERVER_REGISTER_ROUTER = 1013;
+    //有状态服务扩缩容,2段提交流程
+    REQ_AGENT_ROUTER_UPDATE = 1014;
+    RSP_NAMESERVER_ROUTER_UPDATE = 1015;
+
+
     //agent && agent 2000 ~ 2999
     NOTIFY_SERVICE_MESSAGE  = 2000;
     REQ_PING_SERVICE        = 2001;
@@ -29,6 +35,9 @@ enum SSError {
     ERR_APP_NOT_REGISTER = -1000;
     ERR_SERVICE_REGISTER_AGAIN = -1001;
     ERR_APP_SESSION_LOST = -1002;
+    ERR_ROUTER_PREPARE_ERR = -1003;
+    ERR_ROUTER_PREPARE_TIMEOUT = -1004;
+    ERR_SERVICE_REGISTER_LINEUP = -1005;
 }
 
 //agent与nameserver建立连接后同步agent信息
@@ -55,8 +64,13 @@ message ServiceInfo {
     uint64 AddrHandle = 3;
 }
 
+message ServiceOptions {
+    uint64 ConsistentHashKey = 1;
+}
+
 message ReqRegisterService {
     ServiceInfo service_info = 1;
+    ServiceOptions options = 2;
 }
 
 message RspRegisterService {
@@ -72,7 +86,8 @@ message ReqUnRegisterService {
 message NotifyServiceOnline {
     string ServerAddr = 1; //mesh server address: ip:port
     ServiceInfo service_info = 2;
-    bool is_online = 3;
+    ServiceOptions options = 3;
+    bool is_online = 4;
 }
 
 //跨进程服务消息通知
@@ -117,6 +132,23 @@ message NotifyServiceKickOff {
     uint64 AddrHandle = 1;
 }
 
+//NameServer通知Agent 有状态服务实例扩容
+message ReqAgentRouterUpdate {
+    int32  Cmd = 1; //一阶段Prepare. 二阶段PrepareAbort, Commit由NotifyServiceOnline通知
+    string ServiceName = 2;
+}
+
+//Agent回复NameServer 有状态服务实例扩容
+message RspNameServerRouterUpdate {
+    int32  Result = 1; //一阶段PrepareOK
+    string ServiceName = 2;
+}
+
+//Agent通知NameServer注册路由
+message NotifyNameServerRegisterRouter {
+    string ServiceName = 1;
+}
+
 //Agent服务间Ping包
 message ReqServicePing {
     uint64 Seq = 1;
@@ -146,6 +178,10 @@ message SSMsg {
       NotifyServiceElectionResult   notify_service_election_result = 110;
       NotifyServiceKickOff   notify_service_kickoff        = 111;
       NotifyNameServerAgentInfo notify_nameserver_agent_info = 112;
+      NotifyNameServerRegisterRouter notify_nameserver_register_router = 113;
+      ReqAgentRouterUpdate   agent_router_update_req         = 114;
+      RspNameServerRouterUpdate nameserver_router_update_rsp = 115;
+
       NotifyServiceMessage   notify_service_message        = 200;
       ReqServicePing     service_ping_req                  = 201;
       RspServicePing     service_ping_rsp                  = 202;

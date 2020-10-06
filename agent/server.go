@@ -32,6 +32,7 @@ type skymeshServer struct {
 	handleServices     map[uint64]*skymeshService
 	nameRouters        map[string]*skymeshNameRouter //skymesh的名字解析列表
 	nameElections      map[string]*skymeshElection
+	nameStates         map[string]ServiceStateType  //key is ServiceName
 
 	sidecar            *skymeshSidecar
 }
@@ -55,6 +56,7 @@ func (s *skymeshServer) Init(conf string, appID string, doServe bool) error {
 	s.handleServices = make(map[uint64]*skymeshService)
 	s.nameRouters = make(map[string]*skymeshNameRouter)
 	s.nameElections = make(map[string]*skymeshElection)
+	s.nameStates = make(map[string]ServiceStateType)
 
 	//sidecar 初始化
 	s.sidecar = &skymeshSidecar{server: s}
@@ -107,7 +109,7 @@ func (s *skymeshServer) loadConfig(conf string) error {
 }
 
 //serviceUrl format : [skymesh://]game_id.env_name.svc_name/inst_id
-func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshService, error) {
+func (s *skymeshServer) Register(serviceUrl string, service AppService, opts ...RegisterOption) (MeshService, error) {
 	serviceUrl = StripSkymeshUrlPrefix(serviceUrl)
 	s.mu.Lock()
 	svc := s.urlServices[serviceUrl]
@@ -122,7 +124,16 @@ func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshSer
 	}
 	addr.AddrHandle = MakeServiceHandle(s.cfg.MeshserverAddress, addr.ServiceName, addr.ServiceId)
 	log.Infof("%s bind handle %d.\n", serviceUrl, addr.AddrHandle)
-	err = s.sidecar.RegisterServiceToNameServer(addr, true)
+	ropts := defaultRegisterOptions()
+	for _, opt := range opts {
+		opt.apply(&ropts)
+	}
+	rst := GetServiceStateType(&ropts)
+	st := s.getServiceStateType(addr.ServiceName)
+	if st != KUnknowStateService && st != rst {
+		return nil, errors.New("service state type error")
+	}
+	err = s.sidecar.RegisterServiceToNameServer(addr, &ropts)
 	if err != nil {
 		return nil, err
 	}
@@ -135,6 +146,7 @@ func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshSer
 		done:     smsync.NewEvent("skymesh.skymeshService.done"),
 		msgQueue: make(chan Message, s.cfg.ServiceQueueSize),
 		regNotify:make(chan error, 1),
+		opts: ropts,
 	}
 	s.mu.Lock()
 	s.urlServices[serviceUrl] = svc
@@ -143,6 +155,7 @@ func (s *skymeshServer) Register(serviceUrl string, service AppService) (MeshSer
 		s.nameGroupServices[addr.ServiceName] = make(map[uint64]*skymeshService)
 	}
 	s.nameGroupServices[addr.ServiceName][addr.AddrHandle] = svc
+	s.nameStates[addr.ServiceName] = rst
 	s.mu.Unlock()
 
 	s.serviceWG.Add(1)
@@ -172,7 +185,7 @@ func (s *skymeshServer) UnRegister(serviceUrl string) error {
 	svc := s.urlServices[serviceUrl]
 	s.mu.Unlock()
 	if svc != nil {
-		s.sidecar.RegisterServiceToNameServer(svc.addr, false)
+		s.sidecar.UnRegisterServiceToNameServer(svc.addr)
 		elec := s.getNameElection(svc.addr.ServiceName)
 		elec.unRegisterService(svc.addr)
 		svc.Stop()
@@ -214,7 +227,7 @@ func (s *skymeshServer) Serve() error {
 				router := s.nameRouters[rsname]
 				s.mu.Unlock()
 				if router != nil {
-					router.notifyInstsChange(e.isOnline, rh, e.serviceAddr.ServiceId)
+					router.notifyInstsChange(e.isOnline, rh, e.serviceAddr.ServiceId, e.serviceOpts)
 				}
 			case *RegAppEvent:
 				e := event.(*RegAppEvent)
@@ -258,6 +271,9 @@ func (s *skymeshServer) Serve() error {
 				if svc != nil {
 					s.UnRegister(svc.addr.ServiceUrl())
 				}
+			case *RouterUpdateEvent:
+				e := event.(*RouterUpdateEvent)
+				s.onRouterUpdate(e)
 			}
 		case msg := <-s.recvQueue: //这里要优先处理消息??
 			dh := msg.GetDstHandle()
@@ -314,7 +330,7 @@ func (s *skymeshServer) Release() {
 	}
 	s.mu.Unlock()
 	for _,svc := range hSvcs {
-		s.sidecar.RegisterServiceToNameServer(svc.GetLocalAddr(), false)
+		s.sidecar.UnRegisterServiceToNameServer(svc.GetLocalAddr())
 		svc.Stop()
 	}
 	log.Debug("stop all services.\n")
@@ -325,6 +341,7 @@ func (s *skymeshServer) Release() {
 	s.nameGroupServices = make(map[string]map[uint64]*skymeshService)
 	s.nameRouters = make(map[string]*skymeshNameRouter) //没有逐个release资源??
 	s.nameElections = make(map[string]*skymeshElection) //没有逐个release资源??
+	s.nameStates = make(map[string]ServiceStateType)
 	s.mu.Unlock()
 	s.serviceWG.Wait()
 	log.Warning("all services stop done!.\n")
@@ -419,8 +436,11 @@ func (s *skymeshServer) GetNameRouter(serviceName string) NameRouter {
 			instAddrs: make(map[uint64]*Addr),
 			watchers:  make(map[AppRouterWatcher]bool),
 			instAttrs: make(map[uint64]ServiceAttr),
+			instOpts:  make(map[uint64]ServiceOptions),
+			state:     NameRouterReady,
 		}
 		s.nameRouters[serviceName] = nr
+		s.sidecar.RegisterRouterToNameServer(serviceName)
 	}
 	s.mu.Unlock()
 	handles, insts := s.getServiceInsts(serviceName)
@@ -431,10 +451,12 @@ func (s *skymeshServer) GetNameRouter(serviceName string) NameRouter {
 		svc := s.handleServices[h]
 		s.mu.Unlock()
 		if svc != nil { //local service
+			nr.AddInstsOpts(instID, svc.opts)
 			nr.AddInstsAttr(instID, svc.GetAttribute())
 		} else {
 			rmtSvc := s.sidecar.getRemoteService(h)
 			if rmtSvc != nil {
+				nr.AddInstsOpts(instID, rmtSvc.opts)
 				nr.AddInstsAttr(instID, rmtSvc.GetAttribute())
 			}
 		}
@@ -474,6 +496,14 @@ func (s *skymeshServer) getService(handle uint64) *skymeshService {
 	svc := s.handleServices[handle]
 	s.mu.Unlock()
 	return svc
+}
+
+func (s *skymeshServer) getServiceStateType(svcName string) ServiceStateType {
+	st,ok := s.nameStates[svcName]
+	if ok {
+		return st
+	}
+	return s.sidecar.getServiceStateType(svcName)
 }
 
 func (s *skymeshServer) setAttribute(srcAddr *Addr, attrs ServiceAttr) error {
@@ -551,4 +581,23 @@ func (s *skymeshServer) GetElectionLeader(svcName string) *Addr {
 func (s *skymeshServer) isElectionLeader(srcAddr *Addr) bool {
 	elec := s.getNameElection(srcAddr.ServiceName)
 	return elec.isElectionLeader(srcAddr)
+}
+
+func (s *skymeshServer) onRouterUpdate(e *RouterUpdateEvent) {
+	rname := e.serviceName
+	s.mu.Lock()
+	router := s.nameRouters[rname]
+	s.mu.Unlock()
+	if router != nil {
+		if e.cmd == KNotifyAgentPrepare {
+			router.setState(NameRouterSwitching)
+			s.sidecar.ReplyNameServerRouterUpdate(rname, KReplyNSPrepareOK)
+		} else if e.cmd == KNotifyAgentPrepareAbort {
+			router.setState(NameRouterReady)
+		}
+	} else { //没有Router??
+		if e.cmd == KNotifyAgentPrepare {
+			s.sidecar.ReplyNameServerRouterUpdate(rname, KReplyNSPrepareOK)
+		}
+	}
 }

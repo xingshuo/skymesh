@@ -7,7 +7,8 @@ import (
 const (
 	AVERAGE_RTT_SAMPLING_NUM = 5 //计算平均延迟的采样次数
 	INVALID_ROUTER_ID = 0 //无效的ServiceId
-	INVALID_HANDLE = 0 //无效的ServiceHandle
+	INVALID_SERVICE_HANDLE = 0 //无效的ServiceHandle
+	INVALID_CONSISTENT_HASH_KEY = 0 //无效的一致性hash key
 )
 
 const (
@@ -54,6 +55,31 @@ func (e LeaderChangeEvent) String() string {
 		return "Invalid-Event"
 	}
 }
+
+type NameRouterState int
+
+const (
+	NameRouterSwitching NameRouterState = iota
+	NameRouterReady
+)
+
+type NameRouterCmd int32
+
+const (
+	KNotifyAgentPrepare      NameRouterCmd = iota + 1 //NameServer notify Agent (stage1)
+	KReplyNSPrepareOK                                 //Agent reply NameServer  (stage1)
+	KReplyNSPrepareError                              //Agent reply NameServer  (stage1)
+	KNotifyAgentPrepareAbort                          //NameServer notify Agent (stage2)
+	KNotifyAgentCommit  							  //NameServer notify Agent (stage2)
+)
+
+type ServiceStateType int32
+
+const (
+	KStatefulService    ServiceStateType = iota + 1
+	KStatelessService
+	KUnknowStateService //未确定状态的服务
+)
 
 type ServiceAttr map[string]interface{}
 
@@ -183,6 +209,7 @@ type OnlineEvent struct {
 	serviceAddr *Addr
 	serverAddr  string
 	isOnline    bool
+	serviceOpts ServiceOptions
 }
 
 type RegAppEvent struct {
@@ -208,4 +235,9 @@ type ElectionEvent struct {
 
 type KickOffEvent struct {
 	dstHandle uint64
+}
+
+type RouterUpdateEvent struct {
+	serviceName string
+	cmd         NameRouterCmd
 }

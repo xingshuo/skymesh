@@ -4,6 +4,7 @@ import skymesh "github.com/xingshuo/skymesh/agent"
 
 const (
 	CheckAliveMaxNumPerTickPerApp = 200
+	ConfirmExpiredSecond = 5
 )
 
 type Config struct {
@@ -22,6 +23,7 @@ type RegServiceMsg struct {
 	serverAddr  string
 	appid       string
 	serviceAddr *skymesh.Addr
+	serviceOpts *skymesh.ServiceOptions
 }
 
 type UnRegServiceMsg struct {
@@ -44,4 +46,10 @@ type ServiceSyncAttr struct {
 type ServiceElection struct {
 	addrHandle uint64
 	event      int32
+}
+
+type RegisterNameRouter struct {
+	serverAddr   string
+	appid        string
+	watchSvcName string
 }

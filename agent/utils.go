@@ -160,3 +160,10 @@ func ParseSkymeshUrl(url string) (appID string, envName string, svcName string, 
 func MakeSkymeshUrl(fullSvcName string, instID uint64) string {
 	return fmt.Sprintf("%s/%v",fullSvcName, instID)
 }
+
+func GetServiceStateType(sopts *ServiceOptions) ServiceStateType {
+	if sopts.ConsistentHashKey != INVALID_CONSISTENT_HASH_KEY {
+		return KStatefulService
+	}
+	return KStatelessService
+}

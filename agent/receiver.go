@@ -136,21 +136,22 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			log.Debug("recv online msg.\n")
 			rsp := ssmsg.GetNotifyServiceOnline()
 			msg := &OnlineEvent{
-				serviceAddr: &Addr{
+				serviceAddr: &Addr {
 					ServiceName: rsp.ServiceInfo.ServiceName,
 					ServiceId:   rsp.ServiceInfo.ServiceId,
 					AddrHandle:  rsp.ServiceInfo.AddrHandle,
 				},
-				serverAddr: rsp.ServerAddr,
-				isOnline:   rsp.IsOnline,
+				serverAddr:  rsp.ServerAddr,
+				isOnline:    rsp.IsOnline,
+				serviceOpts: ServiceOptions {
+					ConsistentHashKey: rsp.Options.ConsistentHashKey,
+				},
 			}
 			deadline := 2
-			ticker := time.NewTicker(time.Duration(deadline)*time.Second)
 			select {
 			case ndr.server.eventQueue <- msg:
-				ticker.Stop()
 				log.Debug("deliver online event msg succeed.\n")
-			case <-ticker.C:
+			case <-time.After(time.Duration(deadline) * time.Second):
 				log.Errorf("deliver online event msg block %ds.\n", deadline)
 			}
 			return
@@ -208,6 +209,20 @@ func (ndr *NSDialerReceiver) OnMessage(s gonet.Sender, b []byte) (skipLen int, e
 			case ndr.server.eventQueue <- msg:
 			default:
 				log.Error("deliver election event msg block.\n")
+			}
+			return
+		}
+		if ssmsg.Cmd == smproto.SSCmd_REQ_AGENT_ROUTER_UPDATE {
+			log.Debug("recv router update msg.\n")
+			rsp := ssmsg.GetAgentRouterUpdateReq()
+			msg := &RouterUpdateEvent {
+				serviceName: rsp.ServiceName,
+				cmd: NameRouterCmd(rsp.Cmd),
+			}
+			select {
+			case ndr.server.eventQueue <- msg:
+			default:
+				log.Error("deliver router update event msg block.\n")
 			}
 			return
 		}
